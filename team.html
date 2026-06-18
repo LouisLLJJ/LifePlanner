@@ -82,22 +82,14 @@ document.body.classList.add('team-locked');
 const KEY='life_compass_team_user_cache_v1';
 const TEAM_CONFIG_KEY='life_compass_team_firebase_config_v1';
 const DEFAULT_Q=[
-  {id:'gratitude',label:'今日の感謝　三つ',placeholder:'① \n② \n③ '},
   {id:'seeking',label:'私は何を求めているのか？',placeholder:'今、自分が本当に求めているものは…'},
   {id:'important',label:'私にとって一番大切なものは何か？',placeholder:'最も大切にしている価値観や存在は…'},
-  {id:'books',label:'私が本に求めているものは？',placeholder:'知識、癒し、刺激、インスピレーション…'},
+  {id:'trueSeeking',label:'私が本当に求めているものは？',placeholder:'本当に手に入れたい状態や感覚は…'},
   {id:'doing',label:'その為に「今」何をしているのか？',placeholder:'具体的な行動を書いてみよう…'},
   {id:'effective',label:'その行動は私の求めているものを手に入れるのに効果的か？',placeholder:'正直に振り返ろう…'},
-  {id:'better',label:'もっと良い方法を考え出し、実行してみよう',placeholder:'新しいアプローチやアイデアは…'}
+  {id:'better',label:'もっといい方法を考え出し、実行してみよう',placeholder:'新しいアプローチやアイデアは…'}
 ];
-const REVIEW_FIELDS=[
-  {id:'weekSummary',label:'この期間を一言で表すと',placeholder:'今週はどんな期間だった？'},
-  {id:'wentWell',label:'うまくいったこと',placeholder:''},
-  {id:'challenges',label:'難しかったこと / 繰り返したパターン',placeholder:''},
-  {id:'learnings',label:'毎日の内省から気づいたこと',placeholder:''},
-  {id:'keepDoing',label:'次の期間で続けること',placeholder:''},
-  {id:'nextChange',label:'次の期間で変えること',placeholder:''}
-];
+const REVIEW_FIELDS=DEFAULT_Q.map(q=>({...q}));
 const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
 const dateKey=(d=new Date())=>{const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d),get=t=>parts.find(x=>x.type===t)?.value;return`${get('year')}-${get('month')}-${get('day')}`};
 const fmt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('ja-JP',{year:'numeric',month:'short',day:'numeric',weekday:'short'}):'未設定';
@@ -146,7 +138,7 @@ const oldQuestionIds=oldQuestionList.map(q=>q.id);db.questions=oldQuestionList;d
 Object.values(db.journal).forEach(r=>{const a=r.answers||{},next={};Object.entries(a).forEach(([k,v])=>{const id=/^\d+$/.test(k)?oldQuestionIds[+k]:k;if(id)next[id]=v});r.answers=next});
 const legacySixLabels=['今日、感謝していることは？','今日は何を求めていた？','大切なことに時間を使えた？','うまくいったことは？','うまくいかなかったことは？','そこから何を学んだ？'];
 if(db.questions.map(q=>q.id).join(',')==='gratitude,seeking,important,well,challenge,learning'||db.questions.map(q=>q.label).join('|')===legacySixLabels.join('|')){db.questions=DEFAULT_Q.map(q=>({...q}));db.questions.forEach(q=>db.questionLabels[q.id]=q.label)}
-if(db.reviewQuestionDefaultsVersion!==3){db.reviewQuestions=REVIEW_FIELDS.map(q=>({...q}));db.reviewLabels=Object.fromEntries(db.reviewQuestions.map(q=>[q.id,q.label]));db.reviewQuestionDefaultsVersion=3;db.reviewSameAsDailyV1=false}
+if(db.teamReflectionQuestionVersion!==4){db.questions=DEFAULT_Q.map(q=>({...q}));db.questionLabels=Object.fromEntries(db.questions.map(q=>[q.id,q.label]));db.reviewQuestions=DEFAULT_Q.map(q=>({...q}));db.reviewLabels=Object.fromEntries(db.reviewQuestions.map(q=>[q.id,q.label]));db.teamReflectionQuestionVersion=4;db.reviewQuestionDefaultsVersion=4;db.reviewSameAsDailyV1=true}
 db.periods.forEach(p=>{p.mission=p.mission||'';p.goal3=p.goal3||'';p.goal1=p.goal1||'';p.roles=p.roles||[];p.roles.forEach(r=>r.id=r.id||uid());p.tasks=p.tasks||[];p.tasks.forEach(t=>{t.id=t.id||uid();t.q=t.q||'q2';t.roleId=t.roleId||'';t.date=t.date||'';t.startTime=t.startTime||'';t.endTime=t.endTime||''});p.review=p.review||{};Object.assign(p.review,{weekSummary:p.review.weekSummary||'',wentWell:p.review.wentWell||'',challenges:p.review.challenges||'',learnings:p.review.learnings||'',keepDoing:p.review.keepDoing||'',nextChange:p.review.nextChange||'',goalResult:p.review.goalResult||'',roleResults:p.review.roleResults||{},priorityResults:p.review.priorityResults||{},taskResults:p.review.taskResults||{}})});
 function active(){return db.periods.find(p=>p.id===db.activeId)||db.periods[0]}
 let teamCloud={user:null,store:null,saveTimer:null,remoteLoaded:false};
@@ -235,7 +227,7 @@ toggleQuestionEditor.onclick=()=>{const opening=!questionEditor.classList.contai
 questionEditorList.addEventListener('input',e=>{if(e.target.dataset.editQuestion!==undefined)questionDraft[e.target.dataset.editQuestion].label=e.target.value;if(e.target.dataset.editPlaceholder!==undefined)questionDraft[e.target.dataset.editPlaceholder].placeholder=e.target.value});
 questionEditorList.addEventListener('click',e=>{let changed=false;if(e.target.dataset.questionDelete!==undefined){questionDraft.splice(+e.target.dataset.questionDelete,1);changed=true}if(e.target.dataset.questionMove!==undefined){const i=+e.target.dataset.questionMove,j=i+(+e.target.dataset.questionDir);if(j>=0&&j<questionDraft.length){[questionDraft[i],questionDraft[j]]=[questionDraft[j],questionDraft[i]];changed=true}}if(changed)renderQuestionEditor()});
 addQuestion.onclick=()=>{questionDraft.push({id:uid(),label:'新しい質問',placeholder:''});renderQuestionEditor()};
-saveQuestions.onclick=()=>{const valid=questionDraft.filter(q=>q.label.trim());if(!valid.length)return toast('質問を1つ以上残してください');db.questions=valid;valid.forEach(q=>db.questionLabels[q.id]=q.label);persist('内省の質問を保存しました');questionEditor.classList.remove('open');toggleQuestionEditor.textContent='質問を編集';renderDaily()};
+saveQuestions.onclick=()=>{const valid=questionDraft.filter(q=>q.label.trim());if(!valid.length)return toast('質問を1つ以上残してください');db.questions=valid;db.questionLabels=Object.fromEntries(valid.map(q=>[q.id,q.label]));db.reviewQuestions=valid.map(q=>({...q}));db.reviewLabels=Object.fromEntries(db.reviewQuestions.map(q=>[q.id,q.label]));db.teamReflectionQuestionVersion=4;db.reviewQuestionDefaultsVersion=4;db.reviewSameAsDailyV1=true;persist('内省と週次の質問を保存しました');questionEditor.classList.remove('open');toggleQuestionEditor.textContent='質問を編集';renderDaily()};
 let historyMode='daily';
 function renderHistory(){dailyHistoryControls.style.display=historyMode==='daily'?'block':'none';if(historyMode==='weekly'){renderWeeklyHistory();return}const from=historyFrom.value,to=historyTo.value;const rows=Object.entries(db.journal).filter(([d])=>(!from||d>=from)&&(!to||d<=to)).sort(([a],[b])=>b.localeCompare(a));historyList.innerHTML=rows.map(([d,r])=>{const p=db.periods.find(x=>x.id===r.periodId),currentIds=new Set(db.questions.map(q=>q.id));const current=db.questions.map(q=>`<div class="answer"><b>${esc(q.label)}</b><textarea class="history-edit-answer" data-history-answer="${q.id}">${esc(r.answers?.[q.id]||'')}</textarea></div>`).join('');const removed=Object.entries(r.answers||{}).filter(([id,v])=>v&&!currentIds.has(id)).map(([id,v])=>`<div class="answer"><b>${esc(db.questionLabels[id]||'削除済みの質問')}</b><textarea class="history-edit-answer" data-history-answer="${id}">${esc(v)}</textarea></div>`).join('');return`<details class="history-card" data-history-date="${d}"><summary><span><b>${fmt(d)}</b><br><span class="period-link">${p?fmt(p.start)+' 〜 '+fmt(p.end):'期間なし'}</span></span><span>${Object.values(r.answers||{}).filter(Boolean).length}回答</span></summary><div class="history-body">${current}${removed}<button class="btn primary" data-save-history="${d}">この日の内容を保存</button></div></details>`}).join('')||'<div class="empty">日次振り返りはまだありません。</div>'}
 function weeklySummaryHistoryHtml(r){const ids=new Set(db.reviewQuestions.map(q=>q.id)),current=db.reviewQuestions.map(x=>`<div class="answer"><b>${esc(x.label)}</b><div>${esc(r[x.id]||'（未記入）')}</div></div>`).join(''),removed=Object.entries(r).filter(([id,v])=>!ids.has(id)&&db.reviewLabels[id]&&typeof v==='string'&&v).map(([id,v])=>`<div class="answer"><b>${esc(db.reviewLabels[id])}（削除済み）</b><div>${esc(v)}</div></div>`).join('');return current+removed}
