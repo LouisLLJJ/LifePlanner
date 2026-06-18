@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Life Planner Recovery</title>
+  <style>
+    :root{--bg:#f5f3ee;--paper:#faf9f6;--ink:#2c2a26;--muted:#6b6760;--line:#d9d5cc;--green:#4a6741;--red:#b43d30;--pale:#eef3ec}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;line-height:1.6}.app{max-width:760px;margin:auto;padding:14px 12px 80px}h1{font-size:20px;margin:6px 0 4px}p{font-size:13px;color:var(--muted)}.card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}.candidate{border:1px solid var(--line);border-radius:10px;background:white;padding:12px;margin:10px 0}.candidate h2{font-size:15px;margin:0 0 4px}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}.meta div{background:var(--pale);border-radius:8px;padding:7px;text-align:center;font-size:11px}.meta strong{display:block;font-size:18px;color:var(--green)}button,a.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:1px solid var(--line);border-radius:999px;background:white;padding:8px 12px;margin:4px 3px;font-weight:700;font-size:12px;color:var(--ink);text-decoration:none}button.primary{background:var(--green);border-color:var(--green);color:white}button.danger{color:var(--red)}textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;background:#fff;white-space:pre-wrap}.warn{border-left:4px solid var(--red);background:#fff4f2}.ok{border-left:4px solid var(--green);background:#f2f8f0}.small{font-size:11px}.empty{padding:20px;text-align:center;color:var(--muted);background:#f7f6f1;border-radius:10px}@media(max-width:600px){.meta{grid-template-columns:repeat(2,1fr)}.app{padding:10px 8px 70px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <h1>復旧専用</h1>
+  <p>このページはクラウドに接続しません。開いただけでは保存内容を変更しません。</p>
+  <div class="card warn">
+    <b>先に確認</b>
+    <p>候補の中で「内省の日数」「役割」「タスク」が一番多いものを選んでください。復元する前に、今の端末データは自動で別バックアップします。</p>
+    <button class="primary" id="scan">復元候補を探す</button>
+    <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
+  </div>
+  <div id="result"></div>
+</div>
+<script>
+const KEY='life_compass_unified_v1';
+const DEFAULT_Q=[
+  {id:'gratitude',label:'今日の感謝　三つ',placeholder:'① \n② \n③ '},
+  {id:'seeking',label:'私は何を求めているのか？',placeholder:''},
+  {id:'important',label:'私にとって一番大切なものは何か？',placeholder:''},
+  {id:'books',label:'私が本に求めているものは？',placeholder:''},
+  {id:'doing',label:'その為に「今」何をしているのか？',placeholder:''},
+  {id:'effective',label:'その行動は私の求めているものを手に入れるのに効果的か？',placeholder:''},
+  {id:'better',label:'もっと良い方法を考え出し、実行してみよう',placeholder:''}
+];
+const REVIEW_FIELDS=[
+  {id:'weekSummary',label:'この期間を一言で表すと',placeholder:''},
+  {id:'wentWell',label:'うまくいったこと',placeholder:''},
+  {id:'challenges',label:'難しかったこと / 繰り返したパターン',placeholder:''},
+  {id:'learnings',label:'毎日の内省から気づいたこと',placeholder:''},
+  {id:'keepDoing',label:'次の期間で続けること',placeholder:''},
+  {id:'nextChange',label:'次の期間で変えること',placeholder:''}
+];
+const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
+const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo'}).format(new Date());
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function blankPeriod(){return{id:uid(),start:today(),end:today(),purpose:'',mission:'',goal3:'',goal1:'',roles:[],tasks:[],metrics:[],review:{},status:'active',createdAt:Date.now()}}
+function normalize(d){if(!d||typeof d!=='object')return null;d.periods=Array.isArray(d.periods)?d.periods:[];d.activeId=d.activeId||d.periods[0]?.id||null;d.journal=d.journal&&typeof d.journal==='object'?d.journal:{};d.questions=Array.isArray(d.questions)?d.questions:DEFAULT_Q.map(q=>({...q}));d.reviewLabels=d.reviewLabels||Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]));d.reviewQuestions=Array.isArray(d.reviewQuestions)?d.reviewQuestions:REVIEW_FIELDS.map(q=>({...q}));d.gcal=d.gcal||{apiKey:'',clientId:'',connected:false,events:[]};d.periods.forEach(p=>{p.id=p.id||uid();p.roles=Array.isArray(p.roles)?p.roles:[];p.tasks=Array.isArray(p.tasks)?p.tasks:[];p.metrics=Array.isArray(p.metrics)?p.metrics:[];p.review=p.review||{};p.status=p.status||'active'});if(!d.activeId&&d.periods[0])d.activeId=d.periods[0].id;return d}
+function migrateLegacy(){
+  const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
+  const oldPlan=readJson('lmgr4'),oldQuestions=readJson('reflection_questions_v3'),oldJournal=readJson('reflection_journal_v3');
+  if(oldPlan){
+    const p=blankPeriod();
+    p.start=oldPlan.weekStart||p.start;p.end=oldPlan.weekEnd||p.end;
+    p.purpose=oldPlan.purpose||oldPlan.goal?.purpose||'';
+    p.mission=oldPlan.mission||'';p.goal3=oldPlan.goal?.g3||oldPlan.g3||'';p.goal1=oldPlan.goal?.g1||oldPlan.g1||'';
+    p.roles=(oldPlan.roles||[]).map(r=>({id:r.id||uid(),name:r.name||'',goal:r.goal||''}));
+    p.tasks=(oldPlan.tasks||[]).map(t=>({id:t.id||uid(),text:t.text||'',q:'q'+(t.q||2),roleId:t.roleId||'',date:'',startTime:'',endTime:'',done:!!t.done}));
+    fresh.periods=[p];fresh.activeId=p.id;
+  }
+  if(Array.isArray(oldQuestions)&&oldQuestions.length)fresh.questions=oldQuestions.map(q=>({id:q.id||uid(),label:q.label||'質問',placeholder:q.placeholder||''}));
+  if(oldJournal){
+    const ids=Array.isArray(oldQuestions)&&oldQuestions.length?oldQuestions.map(q=>q.id):[];
+    Object.entries(oldJournal).forEach(([d,r])=>{
+      const p=fresh.periods[0]||blankPeriod();if(!fresh.periods.length){fresh.periods=[p];fresh.activeId=p.id}
+      const answers={};(ids.length?ids:Object.keys(r.answers||{})).forEach((id,i)=>answers[fresh.questions[i]?.id||id]=r.answers?.[id]||'');
+      fresh.journal[d]={answers,result:'',tomorrow:'',periodId:p.id,savedAt:r.savedAt||Date.now()};
+    });
+  }
+  return normalize(fresh);
+}
+function readJson(key){try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}}
+function stats(d){const periods=(d.periods||[]).length,days=Object.keys(d.journal||{}).length,tasks=(d.periods||[]).reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=(d.periods||[]).reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0);return{periods,days,tasks,roles,score:periods*10+days*8+tasks*2+roles*3}}
+function meaningful(d){const s=stats(d);return s.days+s.tasks+s.roles>0||(d.periods||[]).some(p=>p.purpose||p.mission||p.goal3||p.goal1)}
+function collect(){
+  const out=[];
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i),raw=localStorage.getItem(key);
+    try{
+      const parsed=JSON.parse(raw);
+      let data=null,label=key;
+      if(key===KEY||key.startsWith(KEY+'_backup_')||(parsed&&parsed.periods&&parsed.journal)){
+        data=normalize(parsed);
+        if(key===KEY)label='現在の統合アプリ保存';
+        if(key.startsWith(KEY+'_backup_'))label='自動バックアップ '+new Date(+key.replace(KEY+'_backup_','')).toLocaleString('ja-JP');
+      }
+      if(data&&meaningful(data))out.push({key,label,data,stats:stats(data)});
+    }catch{}
+  }
+  const legacy=migrateLegacy();
+  if(meaningful(legacy))out.push({key:'legacy',label:'旧プランニング/旧内省から作成',data:legacy,stats:stats(legacy)});
+  const seen=new Set();
+  return out.filter(c=>{const sig=JSON.stringify(c.stats)+JSON.stringify((c.data.periods||[]).map(p=>[p.start,p.end,p.goal1,p.goal3,(p.tasks||[]).length]));if(seen.has(sig))return false;seen.add(sig);return true}).sort((a,b)=>b.stats.score-a.stats.score);
+}
+function downloadCandidate(c){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(c.data,null,2)],{type:'application/json'}));
+  a.download='lifeplanner-recovered-'+Date.now()+'.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function restoreCandidate(c){
+  if(!confirm(c.label+' を個人用アプリの保存データとして復元しますか？'))return;
+  const current=localStorage.getItem(KEY);
+  if(current)localStorage.setItem(KEY+'_backup_'+Date.now(),current);
+  localStorage.setItem(KEY,JSON.stringify(c.data));
+  alert('復元しました。次に個人用アプリを開いて中身を確認してください。');
+}
+function render(){
+  const list=collect();
+  result.innerHTML=list.length?list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><button class="primary" data-restore="${i}">これを復元</button><button data-download="${i}">JSON保存</button><details><summary>中身を少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">復元候補が見つかりませんでした。Safari/Chromeなど、以前使っていた同じブラウザでこのページを開いてください。</div>';
+  result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreCandidate(list[+b.dataset.restore]));
+  result.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>downloadCandidate(list[+b.dataset.download]));
+}
+scan.onclick=render;
+render();
+</script>
+</body>
+</html>
