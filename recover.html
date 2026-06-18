@@ -15,11 +15,14 @@
   <p>このページはクラウドに接続しません。開いただけでは保存内容を変更しません。</p>
   <div class="card warn">
     <b>先に確認</b>
-    <p>今週だけ消えた時は「今週分だけ合体」か「プランニングだけ合体」を使ってください。全部戻すより安全に、今の過去データへ新しく立てた内容だけを足します。</p>
+    <p>指定した期間だけ消えた時は「指定期間だけ合体」か「プランニングだけ合体」を使ってください。全部戻すより安全に、今の過去データへ新しく立てた内容だけを足します。</p>
     <label class="small">探す期間の開始日</label>
     <input id="targetStart" type="date" value="2026-06-19">
     <label class="small">探す期間の終了日</label>
     <input id="targetEnd" type="date" value="2026-06-26">
+    <label class="small">戻したい時刻</label>
+    <input id="targetMoment" type="datetime-local" value="2026-06-18T11:00">
+    <button class="primary" id="restoreMoment">11時時点に一番近い保存を復元</button>
     <button class="primary" id="scan">この期間の復元候補を探す</button>
     <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
   </div>
@@ -74,10 +77,9 @@ function migrateLegacy(){
 }
 function readJson(key){try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}}
 function stats(d){const periods=(d.periods||[]).length,dates=Object.keys(d.journal||{}).sort(),days=dates.length,tasks=(d.periods||[]).reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=(d.periods||[]).reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0);return{periods,days,tasks,roles,latest:dates.at(-1)||'',score:periods*10+days*8+tasks*2+roles*3}}
-function mondayOf(d){const x=new Date(d+'T00:00:00'),day=x.getDay()||7;x.setDate(x.getDate()-day+1);return x.toISOString().slice(0,10)}
 function addDays(d,n){const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
-function targetRange(){const start=targetStart?.value||'2026-06-19',end=targetEnd?.value||'2026-06-26';return{start,end}}
-function periodOverlaps(p,range=targetRange()){return (p.start<=range.end&&p.end>=range.start)||(p.start<=today()&&p.end>=today())}
+function targetRange(){const start=document.getElementById('targetStart')?.value||'2026-06-19',end=document.getElementById('targetEnd')?.value||'2026-06-26';return{start,end}}
+function periodOverlaps(p,range=targetRange()){return !!(p.start&&p.end&&p.start<=range.end&&p.end>=range.start)}
 function rangesText(d){const ranges=(d.periods||[]).map(p=>`${p.start||'?'}〜${p.end||'?'}`).filter(Boolean);return ranges.slice(-4).join(' / ')||'期間なし'}
 function relevantPeriods(d){
   const wr=targetRange(),periods=d.periods||[];
@@ -96,6 +98,7 @@ function planPreview(d){
   }).join('\n\n');
 }
 function meaningful(d){const s=stats(d);return s.days+s.tasks+s.roles>0||(d.periods||[]).some(p=>p.purpose||p.mission||p.goal3||p.goal1)}
+function keyTime(key){if(key&&key.startsWith(KEY+'_backup_')){const n=+key.replace(KEY+'_backup_','');return Number.isFinite(n)?n:0}return 0}
 function collect(){
   const out=[];
   for(let i=0;i<localStorage.length;i++){
@@ -108,11 +111,11 @@ function collect(){
         if(key===KEY)label='現在の統合アプリ保存';
         if(key.startsWith(KEY+'_backup_'))label='自動バックアップ '+new Date(+key.replace(KEY+'_backup_','')).toLocaleString('ja-JP');
       }
-      if(data&&meaningful(data))out.push({key,label,data,stats:stats(data)});
+      if(data&&meaningful(data))out.push({key,label,data,stats:stats(data),time:keyTime(key)});
     }catch{}
   }
   const legacy=migrateLegacy();
-  if(meaningful(legacy))out.push({key:'legacy',label:'旧プランニング/旧内省から作成',data:legacy,stats:stats(legacy)});
+  if(meaningful(legacy))out.push({key:'legacy',label:'旧プランニング/旧内省から作成',data:legacy,stats:stats(legacy),time:0});
   const seen=new Set();
   return out.filter(c=>{const sig=JSON.stringify(c.stats)+JSON.stringify((c.data.periods||[]).map(p=>[p.start,p.end,p.goal1,p.goal3,(p.tasks||[]).length]));if(seen.has(sig))return false;seen.add(sig);return true}).sort((a,b)=>Number((b.data.periods||[]).some(p=>periodOverlaps(p)))-Number((a.data.periods||[]).some(p=>periodOverlaps(p)))||b.stats.score-a.stats.score);
 }
@@ -139,11 +142,20 @@ function restoreCandidate(c){
   localStorage.setItem(KEY,JSON.stringify(c.data));
   alert('復元しました。次に個人用アプリを開いて中身を確認してください。');
 }
+function restoreClosestMoment(){
+  const targetValue=document.getElementById('targetMoment')?.value||'2026-06-18T11:00';
+  const targetMs=new Date(targetValue).getTime();
+  const candidates=collect().filter(c=>c.time&&c.time<=targetMs).sort((a,b)=>b.time-a.time);
+  if(!candidates.length){alert('11時以前の自動バックアップが見つかりませんでした。下の復元候補と生データ確認を見てください。');render();return}
+  const c=candidates[0],when=new Date(c.time).toLocaleString('ja-JP');
+  if(!confirm(`${when} の保存を復元しますか？\n${c.label}`))return;
+  restoreCandidate(c);
+}
 function mergeWeekCandidate(c){
   const current=normalize(readJson(KEY)||{periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))});
   const wr=targetRange(),src=normalize(c.data),currentRaw=localStorage.getItem(KEY);
   if(currentRaw)localStorage.setItem(KEY+'_backup_'+Date.now(),currentRaw);
-  const weekPeriods=(src.periods||[]).filter(p=>(p.start<=wr.end&&p.end>=wr.start)||(p.start<=today()&&p.end>=today()));
+  const weekPeriods=(src.periods||[]).filter(p=>periodOverlaps(p,wr));
   const idMap={};
   weekPeriods.forEach(p=>{
     const copy=JSON.parse(JSON.stringify(p));
@@ -163,7 +175,7 @@ function mergeWeekCandidate(c){
   if(src.reviewQuestions?.length)current.reviewQuestions=src.reviewQuestions;
   current.reviewLabels=src.reviewLabels||current.reviewLabels;
   localStorage.setItem(KEY,JSON.stringify(current));
-  alert('今週分を合体しました。個人用アプリで今週の期間・履歴を確認してください。');
+  alert('指定期間分を合体しました。個人用アプリでその期間・履歴を確認してください。');
 }
 function mergePlanningCandidate(c){
   const current=normalize(readJson(KEY)||{periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))});
@@ -196,13 +208,14 @@ function render(){
   const list=collect();
   const wr=targetRange();
   const raw=rawKeys();
-  result.innerHTML=(list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">統合できる復元候補が見つかりませんでした。</div>')+`<div class="card"><h2>生データ確認</h2><p>上の候補に目標が出ない場合、ここで保存キーの中身を見ます。三ヶ月目標・一ヶ月目標に書いた言葉が見えるか確認してください。</p>${raw.map(r=>`<details class="candidate"><summary>${r.important?'★ ':''}${esc(r.key)} (${r.size}文字)</summary><textarea readonly>${esc(r.preview)}</textarea></details>`).join('')||'<div class="empty">localStorageが空です。</div>'}</div>`;
+  result.innerHTML=(list.length?`<div class="card ok"><b>指定期間判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">指定期間だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">統合できる復元候補が見つかりませんでした。</div>')+`<div class="card"><h2>生データ確認</h2><p>上の候補に目標が出ない場合、ここで保存キーの中身を見ます。三ヶ月目標・一ヶ月目標に書いた言葉が見えるか確認してください。</p>${raw.map(r=>`<details class="candidate"><summary>${r.important?'★ ':''}${esc(r.key)} (${r.size}文字)</summary><textarea readonly>${esc(r.preview)}</textarea></details>`).join('')||'<div class="empty">localStorageが空です。</div>'}</div>`;
   result.querySelectorAll('[data-merge-plan]').forEach(b=>b.onclick=()=>mergePlanningCandidate(list[+b.dataset.mergePlan]));
   result.querySelectorAll('[data-merge-week]').forEach(b=>b.onclick=()=>mergeWeekCandidate(list[+b.dataset.mergeWeek]));
   result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreCandidate(list[+b.dataset.restore]));
   result.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>downloadCandidate(list[+b.dataset.download]));
 }
 scan.onclick=render;
+restoreMoment.onclick=restoreClosestMoment;
 render();
 </script>
 </body>
