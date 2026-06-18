@@ -15,7 +15,7 @@
   <p>このページはクラウドに接続しません。開いただけでは保存内容を変更しません。</p>
   <div class="card warn">
     <b>先に確認</b>
-    <p>候補の中で「内省の日数」「役割」「タスク」が一番多いものを選んでください。復元する前に、今の端末データは自動で別バックアップします。</p>
+    <p>今週だけ消えた時は「今週分だけ合体」を使ってください。全部戻すより安全に、今の過去データへ今週の期間・内省・タスクを足します。</p>
     <button class="primary" id="scan">復元候補を探す</button>
     <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
   </div>
@@ -69,7 +69,11 @@ function migrateLegacy(){
   return normalize(fresh);
 }
 function readJson(key){try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}}
-function stats(d){const periods=(d.periods||[]).length,days=Object.keys(d.journal||{}).length,tasks=(d.periods||[]).reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=(d.periods||[]).reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0);return{periods,days,tasks,roles,score:periods*10+days*8+tasks*2+roles*3}}
+function stats(d){const periods=(d.periods||[]).length,dates=Object.keys(d.journal||{}).sort(),days=dates.length,tasks=(d.periods||[]).reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=(d.periods||[]).reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0);return{periods,days,tasks,roles,latest:dates.at(-1)||'',score:periods*10+days*8+tasks*2+roles*3}}
+function mondayOf(d){const x=new Date(d+'T00:00:00'),day=x.getDay()||7;x.setDate(x.getDate()-day+1);return x.toISOString().slice(0,10)}
+function addDays(d,n){const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
+function weekRange(){const start=mondayOf(today());return{start,end:addDays(start,6)}}
+function rangesText(d){const ranges=(d.periods||[]).map(p=>`${p.start||'?'}〜${p.end||'?'}`).filter(Boolean);return ranges.slice(-4).join(' / ')||'期間なし'}
 function meaningful(d){const s=stats(d);return s.days+s.tasks+s.roles>0||(d.periods||[]).some(p=>p.purpose||p.mission||p.goal3||p.goal1)}
 function collect(){
   const out=[];
@@ -105,9 +109,37 @@ function restoreCandidate(c){
   localStorage.setItem(KEY,JSON.stringify(c.data));
   alert('復元しました。次に個人用アプリを開いて中身を確認してください。');
 }
+function mergeWeekCandidate(c){
+  const current=normalize(readJson(KEY)||{periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))});
+  const wr=weekRange(),src=normalize(c.data),currentRaw=localStorage.getItem(KEY);
+  if(currentRaw)localStorage.setItem(KEY+'_backup_'+Date.now(),currentRaw);
+  const weekPeriods=(src.periods||[]).filter(p=>(p.start<=wr.end&&p.end>=wr.start)||(p.start<=today()&&p.end>=today()));
+  const idMap={};
+  weekPeriods.forEach(p=>{
+    const copy=JSON.parse(JSON.stringify(p));
+    const existing=(current.periods||[]).find(x=>x.id===copy.id||((x.start===copy.start&&x.end===copy.end)&&((x.goal1||x.goal3||'')===(copy.goal1||copy.goal3||''))));
+    if(existing){Object.assign(existing,copy);idMap[p.id]=existing.id}
+    else{current.periods.push(copy);idMap[p.id]=copy.id}
+    current.activeId=idMap[p.id]||copy.id;
+  });
+  Object.entries(src.journal||{}).forEach(([d,r])=>{
+    if(d>=wr.start&&d<=wr.end){
+      const copy=JSON.parse(JSON.stringify(r));
+      if(copy.periodId&&idMap[copy.periodId])copy.periodId=idMap[copy.periodId];
+      current.journal[d]=copy;
+    }
+  });
+  if(src.questions?.length)current.questions=src.questions;
+  if(src.reviewQuestions?.length)current.reviewQuestions=src.reviewQuestions;
+  current.reviewLabels=src.reviewLabels||current.reviewLabels;
+  localStorage.setItem(KEY,JSON.stringify(current));
+  alert('今週分を合体しました。個人用アプリで今週の期間・履歴を確認してください。');
+}
 function render(){
   const list=collect();
-  result.innerHTML=list.length?list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><button class="primary" data-restore="${i}">これを復元</button><button data-download="${i}">JSON保存</button><details><summary>中身を少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">復元候補が見つかりませんでした。Safari/Chromeなど、以前使っていた同じブラウザでこのページを開いてください。</div>';
+  const wr=weekRange();
+  result.innerHTML=list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「最新日」と「期間範囲」を見てください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>中身を少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">復元候補が見つかりませんでした。Safari/Chromeなど、以前使っていた同じブラウザでこのページを開いてください。</div>';
+  result.querySelectorAll('[data-merge-week]').forEach(b=>b.onclick=()=>mergeWeekCandidate(list[+b.dataset.mergeWeek]));
   result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreCandidate(list[+b.dataset.restore]));
   result.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>downloadCandidate(list[+b.dataset.download]));
 }
