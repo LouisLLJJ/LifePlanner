@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Life Planner Cloud Recovery</title>
+  <style>
+    :root{--bg:#f5f3ee;--paper:#faf9f6;--ink:#2c2a26;--muted:#6b6760;--line:#d9d5cc;--green:#4a6741;--red:#b43d30;--pale:#eef3ec}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;line-height:1.6}.app{max-width:760px;margin:auto;padding:14px 12px 80px}h1{font-size:20px;margin:6px 0 4px}p{font-size:13px;color:var(--muted)}.card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}.candidate{border:1px solid var(--line);border-radius:10px;background:white;padding:12px;margin:10px 0}.candidate h2{font-size:15px;margin:0 0 4px}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}.meta div{background:var(--pale);border-radius:8px;padding:7px;text-align:center;font-size:11px}.meta strong{display:block;font-size:18px;color:var(--green)}input{width:100%;min-height:42px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:8px 10px;margin:3px 0 8px;font-size:16px}button,a.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:1px solid var(--line);border-radius:999px;background:white;padding:8px 12px;margin:4px 3px;font-weight:700;font-size:12px;color:var(--ink);text-decoration:none}button.primary{background:var(--green);border-color:var(--green);color:white}button.danger{color:var(--red)}textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;background:#fff;white-space:pre-wrap}.warn{border-left:4px solid var(--red);background:#fff4f2}.ok{border-left:4px solid var(--green);background:#f2f8f0}.small{font-size:11px}.empty{padding:20px;text-align:center;color:var(--muted);background:#f7f6f1;border-radius:10px}@media(max-width:600px){.meta{grid-template-columns:repeat(2,1fr)}.app{padding:10px 8px 70px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <h1>クラウド復旧専用</h1>
+  <p>Firebaseに残っている個人用データを読み取るだけのページです。ログインしても自動保存・上書きはしません。</p>
+  <div class="card warn">
+    <b>探すもの</b>
+    <p>端末内に出てこない「新しく作ったプランニング」が、クラウド側に残っていないか確認します。</p>
+    <input id="email" type="email" autocomplete="email" placeholder="メール">
+    <input id="password" type="password" autocomplete="current-password" placeholder="パスワード">
+    <button class="primary" id="login">ログインしてクラウド候補を読む</button>
+    <button id="resetPassword">パスワード再設定</button>
+    <a class="btn" href="./recover.html">端末内復旧へ戻る</a>
+  </div>
+  <div id="status" class="card">未接続</div>
+  <div id="result"></div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script>
+const KEY='life_compass_unified_v1';
+const CONFIG={"apiKey":"AIzaSyBjda2oWyasBY5jeRxP4wQSBqruBCiYqso","authDomain":"lifeplanner-team.firebaseapp.com","projectId":"lifeplanner-team","storageBucket":"lifeplanner-team.firebasestorage.app","messagingSenderId":"172490873844","appId":"1:172490873844:web:5c70fb8e6fcf2552c1b7a1"};
+firebase.initializeApp(CONFIG);
+const auth=firebase.auth(), store=firebase.firestore();
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function stats(d){const periods=(d?.periods||[]).length,days=Object.keys(d?.journal||{}).length,tasks=(d?.periods||[]).reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=(d?.periods||[]).reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0);return{periods,days,tasks,roles}}
+function preview(d){
+  const periods=(d?.periods||[]).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)||(b.end||'').localeCompare(a.end||'')).slice(0,3);
+  if(!periods.length)return '期間データなし';
+  return periods.map(p=>[
+    `期間: ${p.start||'?'}〜${p.end||'?'}`,
+    p.goal3&&`3ヶ月目標: ${p.goal3}`,
+    p.goal1&&`1ヶ月目標: ${p.goal1}`,
+    p.purpose&&`目的: ${p.purpose}`,
+    p.mission&&`ミッション: ${p.mission}`,
+    ...(p.roles||[]).filter(r=>r.name||r.goal).slice(0,8).map(r=>`役割: ${r.name||''} / ${r.goal||''}`),
+    ...(p.tasks||[]).filter(t=>t.text).slice(0,15).map(t=>`タスク: ${t.text}`)
+  ].filter(Boolean).join('\n')).join('\n\n');
+}
+function restore(data,label){
+  if(!confirm(`${label} をこの端末の個人用アプリに復元しますか？`))return;
+  const current=localStorage.getItem(KEY);
+  if(current)localStorage.setItem(KEY+'_backup_'+Date.now(),current);
+  localStorage.setItem(KEY,JSON.stringify(data));
+  alert('復元しました。個人用アプリを開いて確認してください。');
+}
+async function loadCloud(user){
+  status.textContent='クラウドを読み込み中...';
+  const list=[];
+  const base=store.collection('users').doc(user.uid);
+  const main=await base.collection('personalPlanner').doc('main').get();
+  if(main.exists&&main.data()?.data)list.push({label:'クラウド最新',data:main.data().data,when:main.data().updatedAt?.toDate?.()?.toLocaleString('ja-JP')||''});
+  const versions=await base.collection('personalPlannerVersions').limit(50).get();
+  versions.forEach(doc=>{if(doc.data()?.data)list.push({label:'クラウド履歴 '+(doc.data().label||doc.id),data:doc.data().data,when:doc.data().savedAt?.toDate?.()?.toLocaleString('ja-JP')||doc.id})});
+  status.textContent=`${list.length}件のクラウド候補を読みました`;
+  result.innerHTML=list.length?list.map((c,i)=>{const s=stats(c.data);return`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">${esc(c.when)}</p><div class="meta"><div><strong>${s.periods}</strong>期間</div><div><strong>${s.days}</strong>内省日</div><div><strong>${s.roles}</strong>役割</div><div><strong>${s.tasks}</strong>タスク</div></div><details open><summary>プランニングを見る</summary><textarea readonly>${esc(preview(c.data))}</textarea></details><button class="primary" data-restore="${i}">これを復元</button><details><summary>全データを見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,8000))}</textarea></details></div>`}).join(''):'<div class="empty">クラウド候補がありません。</div>';
+  result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restore(list[+b.dataset.restore].data,list[+b.dataset.restore].label));
+}
+function msg(e){const c=e?.code||'';if(c.includes('wrong-password')||c.includes('invalid-credential'))return'メールかパスワードが違います';if(c.includes('user-not-found'))return'このメールは未登録です';if(c.includes('too-many-requests'))return'失敗が多く一時停止中です。少し待つかパスワード再設定を使ってください';return e?.message||String(e)}
+login.onclick=async()=>{try{status.textContent='ログイン中...';const r=await auth.signInWithEmailAndPassword(email.value.trim(),password.value);await loadCloud(r.user)}catch(e){status.textContent='ログイン/読み込み失敗: '+msg(e)}};
+resetPassword.onclick=async()=>{try{if(!email.value.trim())return alert('メールを入れてください');await auth.sendPasswordResetEmail(email.value.trim());alert('再設定メールを送りました')}catch(e){alert(msg(e))}};
+auth.onAuthStateChanged(u=>{if(u){email.value=email.value||u.email||'';loadCloud(u).catch(e=>status.textContent='読み込み失敗: '+msg(e))}});
+</script>
+</body>
+</html>
