@@ -16,7 +16,11 @@
   <div class="card warn">
     <b>先に確認</b>
     <p>今週だけ消えた時は「今週分だけ合体」か「プランニングだけ合体」を使ってください。全部戻すより安全に、今の過去データへ新しく立てた内容だけを足します。</p>
-    <button class="primary" id="scan">復元候補を探す</button>
+    <label class="small">探す期間の開始日</label>
+    <input id="targetStart" type="date" value="2026-06-19">
+    <label class="small">探す期間の終了日</label>
+    <input id="targetEnd" type="date" value="2026-06-26">
+    <button class="primary" id="scan">この期間の復元候補を探す</button>
     <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
   </div>
   <div id="result"></div>
@@ -72,11 +76,12 @@ function readJson(key){try{return JSON.parse(localStorage.getItem(key)||'null')}
 function stats(d){const periods=(d.periods||[]).length,dates=Object.keys(d.journal||{}).sort(),days=dates.length,tasks=(d.periods||[]).reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=(d.periods||[]).reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0);return{periods,days,tasks,roles,latest:dates.at(-1)||'',score:periods*10+days*8+tasks*2+roles*3}}
 function mondayOf(d){const x=new Date(d+'T00:00:00'),day=x.getDay()||7;x.setDate(x.getDate()-day+1);return x.toISOString().slice(0,10)}
 function addDays(d,n){const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
-function weekRange(){const start=mondayOf(today());return{start,end:addDays(start,6)}}
+function targetRange(){const start=targetStart?.value||'2026-06-19',end=targetEnd?.value||'2026-06-26';return{start,end}}
+function periodOverlaps(p,range=targetRange()){return (p.start<=range.end&&p.end>=range.start)||(p.start<=today()&&p.end>=today())}
 function rangesText(d){const ranges=(d.periods||[]).map(p=>`${p.start||'?'}〜${p.end||'?'}`).filter(Boolean);return ranges.slice(-4).join(' / ')||'期間なし'}
 function relevantPeriods(d){
-  const wr=weekRange(),periods=d.periods||[];
-  const inWeek=periods.filter(p=>(p.start<=wr.end&&p.end>=wr.start)||(p.start<=today()&&p.end>=today()));
+  const wr=targetRange(),periods=d.periods||[];
+  const inWeek=periods.filter(p=>periodOverlaps(p,wr));
   if(inWeek.length)return inWeek;
   return periods.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)||(b.end||'').localeCompare(a.end||'')).slice(0,1);
 }
@@ -109,7 +114,7 @@ function collect(){
   const legacy=migrateLegacy();
   if(meaningful(legacy))out.push({key:'legacy',label:'旧プランニング/旧内省から作成',data:legacy,stats:stats(legacy)});
   const seen=new Set();
-  return out.filter(c=>{const sig=JSON.stringify(c.stats)+JSON.stringify((c.data.periods||[]).map(p=>[p.start,p.end,p.goal1,p.goal3,(p.tasks||[]).length]));if(seen.has(sig))return false;seen.add(sig);return true}).sort((a,b)=>b.stats.score-a.stats.score);
+  return out.filter(c=>{const sig=JSON.stringify(c.stats)+JSON.stringify((c.data.periods||[]).map(p=>[p.start,p.end,p.goal1,p.goal3,(p.tasks||[]).length]));if(seen.has(sig))return false;seen.add(sig);return true}).sort((a,b)=>Number((b.data.periods||[]).some(p=>periodOverlaps(p)))-Number((a.data.periods||[]).some(p=>periodOverlaps(p)))||b.stats.score-a.stats.score);
 }
 function rawKeys(){
   const keys=[];
@@ -136,7 +141,7 @@ function restoreCandidate(c){
 }
 function mergeWeekCandidate(c){
   const current=normalize(readJson(KEY)||{periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))});
-  const wr=weekRange(),src=normalize(c.data),currentRaw=localStorage.getItem(KEY);
+  const wr=targetRange(),src=normalize(c.data),currentRaw=localStorage.getItem(KEY);
   if(currentRaw)localStorage.setItem(KEY+'_backup_'+Date.now(),currentRaw);
   const weekPeriods=(src.periods||[]).filter(p=>(p.start<=wr.end&&p.end>=wr.start)||(p.start<=today()&&p.end>=today()));
   const idMap={};
@@ -189,7 +194,7 @@ function mergePlanningCandidate(c){
 }
 function render(){
   const list=collect();
-  const wr=weekRange();
+  const wr=targetRange();
   const raw=rawKeys();
   result.innerHTML=(list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">統合できる復元候補が見つかりませんでした。</div>')+`<div class="card"><h2>生データ確認</h2><p>上の候補に目標が出ない場合、ここで保存キーの中身を見ます。三ヶ月目標・一ヶ月目標に書いた言葉が見えるか確認してください。</p>${raw.map(r=>`<details class="candidate"><summary>${r.important?'★ ':''}${esc(r.key)} (${r.size}文字)</summary><textarea readonly>${esc(r.preview)}</textarea></details>`).join('')||'<div class="empty">localStorageが空です。</div>'}</div>`;
   result.querySelectorAll('[data-merge-plan]').forEach(b=>b.onclick=()=>mergePlanningCandidate(list[+b.dataset.mergePlan]));
