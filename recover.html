@@ -15,7 +15,7 @@
   <p>このページはクラウドに接続しません。開いただけでは保存内容を変更しません。</p>
   <div class="card warn">
     <b>先に確認</b>
-    <p>今週だけ消えた時は「今週分だけ合体」を使ってください。全部戻すより安全に、今の過去データへ今週の期間・内省・タスクを足します。</p>
+    <p>今週だけ消えた時は「今週分だけ合体」か「プランニングだけ合体」を使ってください。全部戻すより安全に、今の過去データへ新しく立てた内容だけを足します。</p>
     <button class="primary" id="scan">復元候補を探す</button>
     <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
   </div>
@@ -74,6 +74,22 @@ function mondayOf(d){const x=new Date(d+'T00:00:00'),day=x.getDay()||7;x.setDate
 function addDays(d,n){const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
 function weekRange(){const start=mondayOf(today());return{start,end:addDays(start,6)}}
 function rangesText(d){const ranges=(d.periods||[]).map(p=>`${p.start||'?'}〜${p.end||'?'}`).filter(Boolean);return ranges.slice(-4).join(' / ')||'期間なし'}
+function relevantPeriods(d){
+  const wr=weekRange(),periods=d.periods||[];
+  const inWeek=periods.filter(p=>(p.start<=wr.end&&p.end>=wr.start)||(p.start<=today()&&p.end>=today()));
+  if(inWeek.length)return inWeek;
+  return periods.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)||(b.end||'').localeCompare(a.end||'')).slice(0,1);
+}
+function planPreview(d){
+  const ps=relevantPeriods(d);
+  if(!ps.length)return 'プランニング内容なし';
+  return ps.map(p=>{
+    const goals=[p.goal1&&`1ヶ月: ${p.goal1}`,p.goal3&&`3ヶ月: ${p.goal3}`,p.purpose&&`目的: ${p.purpose}`,p.mission&&`ミッション: ${p.mission}`].filter(Boolean).join('\n');
+    const roles=(p.roles||[]).filter(r=>r.name||r.goal).slice(0,6).map(r=>`役割: ${r.name||'未入力'} / ${r.goal||''}`).join('\n');
+    const tasks=(p.tasks||[]).filter(t=>t.text).slice(0,10).map(t=>`タスク: ${t.text}`).join('\n');
+    return [`期間: ${p.start||'?'}〜${p.end||'?'}`,goals,roles,tasks].filter(Boolean).join('\n');
+  }).join('\n\n');
+}
 function meaningful(d){const s=stats(d);return s.days+s.tasks+s.roles>0||(d.periods||[]).some(p=>p.purpose||p.mission||p.goal3||p.goal1)}
 function collect(){
   const out=[];
@@ -135,10 +151,38 @@ function mergeWeekCandidate(c){
   localStorage.setItem(KEY,JSON.stringify(current));
   alert('今週分を合体しました。個人用アプリで今週の期間・履歴を確認してください。');
 }
+function mergePlanningCandidate(c){
+  const current=normalize(readJson(KEY)||{periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))});
+  const src=normalize(c.data),currentRaw=localStorage.getItem(KEY),targets=relevantPeriods(src);
+  if(!targets.length){alert('この候補にプランニング期間が見つかりません。');return}
+  if(currentRaw)localStorage.setItem(KEY+'_backup_'+Date.now(),currentRaw);
+  const idMap={};
+  targets.forEach(p=>{
+    const copy=JSON.parse(JSON.stringify(p));
+    const existing=(current.periods||[]).find(x=>x.id===copy.id||(x.start===copy.start&&x.end===copy.end));
+    if(existing){Object.assign(existing,copy);idMap[p.id]=existing.id}
+    else{current.periods.push(copy);idMap[p.id]=copy.id}
+    current.activeId=idMap[p.id]||copy.id;
+  });
+  Object.entries(src.journal||{}).forEach(([d,r])=>{
+    const belongs=targets.some(p=>d>=p.start&&d<=p.end);
+    if(belongs){
+      const copy=JSON.parse(JSON.stringify(r));
+      if(copy.periodId&&idMap[copy.periodId])copy.periodId=idMap[copy.periodId];
+      current.journal[d]=copy;
+    }
+  });
+  if(src.questions?.length)current.questions=src.questions;
+  if(src.reviewQuestions?.length)current.reviewQuestions=src.reviewQuestions;
+  current.reviewLabels=src.reviewLabels||current.reviewLabels;
+  localStorage.setItem(KEY,JSON.stringify(current));
+  alert('プランニングを合体しました。個人用アプリで役割・目標・タスクを確認してください。');
+}
 function render(){
   const list=collect();
   const wr=weekRange();
-  result.innerHTML=list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「最新日」と「期間範囲」を見てください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>中身を少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">復元候補が見つかりませんでした。Safari/Chromeなど、以前使っていた同じブラウザでこのページを開いてください。</div>';
+  result.innerHTML=list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">復元候補が見つかりませんでした。Safari/Chromeなど、以前使っていた同じブラウザでこのページを開いてください。</div>';
+  result.querySelectorAll('[data-merge-plan]').forEach(b=>b.onclick=()=>mergePlanningCandidate(list[+b.dataset.mergePlan]));
   result.querySelectorAll('[data-merge-week]').forEach(b=>b.onclick=()=>mergeWeekCandidate(list[+b.dataset.mergeWeek]));
   result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreCandidate(list[+b.dataset.restore]));
   result.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>downloadCandidate(list[+b.dataset.download]));
