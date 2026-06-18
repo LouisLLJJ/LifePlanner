@@ -22,6 +22,8 @@
     <input id="targetEnd" type="date" value="2026-06-26">
     <label class="small">戻したい時刻</label>
     <input id="targetMoment" type="datetime-local" value="2026-06-18T11:00">
+    <label class="small">消えた目標・タスクの言葉で検索</label>
+    <input id="keyword" type="search" placeholder="例：三ヶ月目標に書いた言葉、タスク名">
     <button class="primary" id="restoreMoment">11時時点に一番近い保存を復元</button>
     <button class="primary" id="scan">この期間の復元候補を探す</button>
     <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
@@ -121,11 +123,13 @@ function collect(){
 }
 function rawKeys(){
   const keys=[];
-  for(let i=0;i<localStorage.length;i++){
-    const key=localStorage.key(i),raw=localStorage.getItem(key)||'';
-    const looksImportant=/goal|g1|g3|mission|purpose|role|task|period|journal|目標|役割|期間|内省|life|lmgr|reflection/i.test(key+' '+raw);
-    keys.push({key,size:raw.length,important:looksImportant,preview:raw.slice(0,4000)});
-  }
+  [[localStorage,'localStorage'],[sessionStorage,'sessionStorage']].forEach(([storage,area])=>{
+    for(let i=0;i<storage.length;i++){
+      const key=storage.key(i),raw=storage.getItem(key)||'';
+      const looksImportant=/goal|g1|g3|mission|purpose|role|task|period|journal|目標|役割|期間|内省|life|lmgr|reflection/i.test(key+' '+raw);
+      keys.push({key:`${area}:${key}`,size:raw.length,important:looksImportant,preview:raw.slice(0,8000),raw});
+    }
+  });
   return keys.sort((a,b)=>(b.important-a.important)||b.size-a.size);
 }
 function downloadCandidate(c){
@@ -207,8 +211,10 @@ function mergePlanningCandidate(c){
 function render(){
   const list=collect();
   const wr=targetRange();
-  const raw=rawKeys();
-  result.innerHTML=(list.length?`<div class="card ok"><b>指定期間判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">指定期間だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">統合できる復元候補が見つかりませんでした。</div>')+`<div class="card"><h2>生データ確認</h2><p>上の候補に目標が出ない場合、ここで保存キーの中身を見ます。三ヶ月目標・一ヶ月目標に書いた言葉が見えるか確認してください。</p>${raw.map(r=>`<details class="candidate"><summary>${r.important?'★ ':''}${esc(r.key)} (${r.size}文字)</summary><textarea readonly>${esc(r.preview)}</textarea></details>`).join('')||'<div class="empty">localStorageが空です。</div>'}</div>`;
+  const kw=(document.getElementById('keyword')?.value||'').trim().toLowerCase();
+  const raw=rawKeys().sort((a,b)=>Number(kw&&(b.key+' '+b.raw).toLowerCase().includes(kw))-Number(kw&&(a.key+' '+a.raw).toLowerCase().includes(kw))||Number(b.important)-Number(a.important)||b.size-a.size);
+  const rawFiltered=kw?raw.filter(r=>(r.key+' '+r.raw).toLowerCase().includes(kw)):raw;
+  result.innerHTML=(list.length?`<div class="card ok"><b>指定期間判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">指定期間だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">統合できる復元候補が見つかりませんでした。</div>')+`<div class="card"><h2>生データ確認</h2><p>上の候補に目標が出ない場合、ここで保存キーの中身を見ます。検索欄に消えた言葉を入れると絞れます。</p>${rawFiltered.map(r=>`<details class="candidate"><summary>${r.important?'★ ':''}${esc(r.key)} (${r.size}文字)</summary><textarea readonly>${esc(r.preview)}</textarea></details>`).join('')||'<div class="empty">検索に一致する保存データがありません。</div>'}</div>`;
   result.querySelectorAll('[data-merge-plan]').forEach(b=>b.onclick=()=>mergePlanningCandidate(list[+b.dataset.mergePlan]));
   result.querySelectorAll('[data-merge-week]').forEach(b=>b.onclick=()=>mergeWeekCandidate(list[+b.dataset.mergeWeek]));
   result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreCandidate(list[+b.dataset.restore]));
@@ -216,6 +222,7 @@ function render(){
 }
 scan.onclick=render;
 restoreMoment.onclick=restoreClosestMoment;
+keyword.addEventListener('input',render);
 render();
 </script>
 </body>
