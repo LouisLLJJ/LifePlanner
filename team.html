@@ -46,7 +46,7 @@
   <main>
     <section class="page on" id="page-plan"><div class="grid">
       <div class="card period-head"><div class="eyebrow">Active Period</div><div class="period-title" id="activePeriodTitle">期間を設定</div><div class="row"><div><label class="label">開始日</label><input type="date" id="periodStart"></div><div><label class="label">終了日</label><input type="date" id="periodEnd"></div></div><div class="actions"><button class="btn primary" id="savePeriod">この期間を保存</button><button class="btn" id="newPeriod">新しい期間</button></div></div>
-      <div class="card"><div class="eyebrow">Direction</div><h2>目的・ミッション・目標</h2><label class="label">人生の目的</label><textarea id="purpose" placeholder="何のために生き、働くのか"></textarea><label class="label">ミッションステートメント</label><textarea id="mission" class="mission-full" placeholder="どんな姿勢で人生を歩むか"></textarea><div class="goal-grid"><div><label class="label">3ヶ月目標</label><textarea id="goal3" placeholder="3ヶ月後に実現したいこと"></textarea></div><div><label class="label">1ヶ月目標</label><textarea id="goal1" placeholder="今月の焦点"></textarea></div></div></div>
+      <div class="card"><div class="eyebrow">Direction</div><h2>目的・ミッション・目標</h2><label class="label">人生の目的</label><textarea id="purpose" placeholder="何のために生き、働くのか"></textarea><label class="label">ビジョン</label><textarea id="mission" class="mission-full" placeholder="どんな姿勢で人生を歩むか"></textarea><div class="goal-grid"><div><label class="label">6ヶ月目標</label><textarea id="goal3" placeholder="6ヶ月後に実現したいこと"></textarea></div><div><label class="label">1ヶ月目標</label><textarea id="goal1" placeholder="今月の焦点"></textarea></div></div></div>
       <div class="card half"><div class="eyebrow">Roles</div><h2>役割と目標</h2><p class="sub">大切な役割ごとに、今回の約束を決めます。</p><div id="roles"></div><button class="btn small" data-add="role">＋ 役割</button></div>
       <div class="card"><div class="eyebrow">Time Matrix</div><h2>4象限マトリクス</h2><div id="matrix" class="matrix"></div></div>
       <div class="card"><h2>日時へ振り分け</h2><p class="sub">タスク名を入れて、設定から役割・象限・日時を決めます。</p><div id="assignments"></div><button class="btn small" data-add="task">＋ 項目を追加</button></div>
@@ -278,6 +278,7 @@ const initialPage=new URLSearchParams(location.search).get('page');if(['plan','c
 </script>
 </body>
 </html>
+
 
 
 
