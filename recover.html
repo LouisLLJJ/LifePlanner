@@ -41,10 +41,10 @@ const REVIEW_FIELDS=[
   {id:'nextChange',label:'次の期間で変えること',placeholder:''}
 ];
 const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
-const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo'}).format(new Date());
+const today=()=>{const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()),get=t=>parts.find(x=>x.type===t)?.value;return`${get('year')}-${get('month')}-${get('day')}`};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function blankPeriod(){return{id:uid(),start:today(),end:today(),purpose:'',mission:'',goal3:'',goal1:'',roles:[],tasks:[],metrics:[],review:{},status:'active',createdAt:Date.now()}}
-function normalize(d){if(!d||typeof d!=='object')return null;d.periods=Array.isArray(d.periods)?d.periods:[];d.activeId=d.activeId||d.periods[0]?.id||null;d.journal=d.journal&&typeof d.journal==='object'?d.journal:{};d.questions=Array.isArray(d.questions)?d.questions:DEFAULT_Q.map(q=>({...q}));d.reviewLabels=d.reviewLabels||Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]));d.reviewQuestions=Array.isArray(d.reviewQuestions)?d.reviewQuestions:REVIEW_FIELDS.map(q=>({...q}));d.gcal=d.gcal||{apiKey:'',clientId:'',connected:false,events:[]};d.periods.forEach(p=>{p.id=p.id||uid();p.roles=Array.isArray(p.roles)?p.roles:[];p.tasks=Array.isArray(p.tasks)?p.tasks:[];p.metrics=Array.isArray(p.metrics)?p.metrics:[];p.review=p.review||{};p.status=p.status||'active'});if(!d.activeId&&d.periods[0])d.activeId=d.periods[0].id;return d}
+function normalize(d){if(!d||typeof d!=='object')return null;if(!Array.isArray(d.periods)&&d.goal){const p=blankPeriod();p.start=d.weekStart||p.start;p.end=d.weekEnd||p.end;p.purpose=d.purpose||d.goal?.purpose||'';p.mission=d.mission||'';p.goal3=d.goal?.g3||d.g3||d.goal3||'';p.goal1=d.goal?.g1||d.g1||d.goal1||'';p.roles=(d.roles||[]).map(r=>({id:r.id||uid(),name:r.name||'',goal:r.goal||''}));p.tasks=(d.tasks||[]).map(t=>({id:t.id||uid(),text:t.text||'',q:String(t.q||'q2').startsWith('q')?String(t.q):'q'+(t.q||2),roleId:t.roleId||'',date:t.date||'',startTime:t.startTime||'',endTime:t.endTime||'',done:!!t.done}));d={periods:[p],activeId:p.id,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))}}d.periods=Array.isArray(d.periods)?d.periods:[];d.activeId=d.activeId||d.periods[0]?.id||null;d.journal=d.journal&&typeof d.journal==='object'?d.journal:{};d.questions=Array.isArray(d.questions)?d.questions:DEFAULT_Q.map(q=>({...q}));d.reviewLabels=d.reviewLabels||Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]));d.reviewQuestions=Array.isArray(d.reviewQuestions)?d.reviewQuestions:REVIEW_FIELDS.map(q=>({...q}));d.gcal=d.gcal||{apiKey:'',clientId:'',connected:false,events:[]};d.periods.forEach(p=>{p.id=p.id||uid();p.goal3=p.goal3||p.g3||p.goal?.g3||'';p.goal1=p.goal1||p.g1||p.goal?.g1||'';p.purpose=p.purpose||p.goal?.purpose||'';p.roles=Array.isArray(p.roles)?p.roles:[];p.tasks=Array.isArray(p.tasks)?p.tasks:[];p.metrics=Array.isArray(p.metrics)?p.metrics:[];p.review=p.review||{};p.status=p.status||'active'});if(!d.activeId&&d.periods[0])d.activeId=d.periods[0].id;return d}
 function migrateLegacy(){
   const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
   const oldPlan=readJson('lmgr4'),oldQuestions=readJson('reflection_questions_v3'),oldJournal=readJson('reflection_journal_v3');
@@ -98,7 +98,7 @@ function collect(){
     try{
       const parsed=JSON.parse(raw);
       let data=null,label=key;
-      if(key===KEY||key.startsWith(KEY+'_backup_')||(parsed&&parsed.periods&&parsed.journal)){
+      if(key===KEY||key.startsWith(KEY+'_backup_')||(parsed&&(parsed.periods||parsed.goal||parsed.roles||parsed.tasks))){
         data=normalize(parsed);
         if(key===KEY)label='現在の統合アプリ保存';
         if(key.startsWith(KEY+'_backup_'))label='自動バックアップ '+new Date(+key.replace(KEY+'_backup_','')).toLocaleString('ja-JP');
@@ -110,6 +110,15 @@ function collect(){
   if(meaningful(legacy))out.push({key:'legacy',label:'旧プランニング/旧内省から作成',data:legacy,stats:stats(legacy)});
   const seen=new Set();
   return out.filter(c=>{const sig=JSON.stringify(c.stats)+JSON.stringify((c.data.periods||[]).map(p=>[p.start,p.end,p.goal1,p.goal3,(p.tasks||[]).length]));if(seen.has(sig))return false;seen.add(sig);return true}).sort((a,b)=>b.stats.score-a.stats.score);
+}
+function rawKeys(){
+  const keys=[];
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i),raw=localStorage.getItem(key)||'';
+    const looksImportant=/goal|g1|g3|mission|purpose|role|task|period|journal|目標|役割|期間|内省|life|lmgr|reflection/i.test(key+' '+raw);
+    keys.push({key,size:raw.length,important:looksImportant,preview:raw.slice(0,4000)});
+  }
+  return keys.sort((a,b)=>(b.important-a.important)||b.size-a.size);
 }
 function downloadCandidate(c){
   const a=document.createElement('a');
@@ -181,7 +190,8 @@ function mergePlanningCandidate(c){
 function render(){
   const list=collect();
   const wr=weekRange();
-  result.innerHTML=list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">復元候補が見つかりませんでした。Safari/Chromeなど、以前使っていた同じブラウザでこのページを開いてください。</div>';
+  const raw=rawKeys();
+  result.innerHTML=(list.length?`<div class="card ok"><b>今週判定</b><p>${wr.start}〜${wr.end} の期間・内省を探します。候補の「プレビュー」に、新しく立てた目標・役割・タスクが出ているものを選んでください。</p></div>`+list.map((c,i)=>`<div class="candidate"><h2>${esc(c.label)}</h2><p class="small">保存キー: ${esc(c.key)}<br>最新の内省日: ${esc(c.stats.latest||'なし')}<br>期間範囲: ${esc(rangesText(c.data))}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><details open><summary>プランニング候補を見る</summary><textarea readonly>${esc(planPreview(c.data))}</textarea></details><button class="primary" data-merge-plan="${i}">プランニングだけ合体</button><button class="primary" data-merge-week="${i}">今週分だけ合体</button><button data-restore="${i}">全部これに復元</button><button data-download="${i}">JSON保存</button><details><summary>全体データを少し見る</summary><textarea readonly>${esc(JSON.stringify(c.data,null,2).slice(0,5000))}</textarea></details></div>`).join(''):'<div class="empty">統合できる復元候補が見つかりませんでした。</div>')+`<div class="card"><h2>生データ確認</h2><p>上の候補に目標が出ない場合、ここで保存キーの中身を見ます。三ヶ月目標・一ヶ月目標に書いた言葉が見えるか確認してください。</p>${raw.map(r=>`<details class="candidate"><summary>${r.important?'★ ':''}${esc(r.key)} (${r.size}文字)</summary><textarea readonly>${esc(r.preview)}</textarea></details>`).join('')||'<div class="empty">localStorageが空です。</div>'}</div>`;
   result.querySelectorAll('[data-merge-plan]').forEach(b=>b.onclick=()=>mergePlanningCandidate(list[+b.dataset.mergePlan]));
   result.querySelectorAll('[data-merge-week]').forEach(b=>b.onclick=()=>mergeWeekCandidate(list[+b.dataset.mergeWeek]));
   result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreCandidate(list[+b.dataset.restore]));
