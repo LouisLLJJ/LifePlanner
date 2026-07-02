@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>LifePlanner データ探索</title>
+  <style>
+    :root{--bg:#f5f3ee;--paper:#faf9f6;--ink:#2c2a26;--muted:#6b6760;--line:#d9d5cc;--green:#4a6741;--red:#b43d30;--pale:#eef3ec;--gold:#b7770d}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;line-height:1.6}.app{max-width:820px;margin:auto;padding:12px 10px 80px}h1{font-size:20px;margin:4px 0 6px}h2{font-size:16px;margin:0 0 8px}p{font-size:13px;color:var(--muted);margin:6px 0}.card,.candidate{background:var(--paper);border:1px solid var(--line);border-radius:13px;padding:13px;margin:10px 0}.candidate{background:white}.ok{border-left:4px solid var(--green)}.warn{border-left:4px solid var(--gold)}.bad{border-left:4px solid var(--red)}label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-top:8px}input{width:100%;min-height:42px;border:1px solid var(--line);border-radius:10px;background:white;padding:8px 10px;font-size:16px}button,a.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:1px solid var(--line);border-radius:999px;background:white;padding:8px 12px;margin:4px 3px;font-weight:700;font-size:12px;color:var(--ink);text-decoration:none}button.primary{background:var(--green);border-color:var(--green);color:white}button.danger{color:var(--red)}.actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}.meta div{background:var(--pale);border-radius:8px;padding:7px;text-align:center;font-size:11px}.meta strong{display:block;font-size:18px;color:var(--green)}textarea{width:100%;min-height:140px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px;font-size:12px;white-space:pre-wrap}.small{font-size:11px;color:var(--muted)}.hit{color:var(--green);font-weight:700}.empty{padding:18px;text-align:center;color:var(--muted);background:#f7f6f1;border-radius:10px}@media(max-width:600px){.meta{grid-template-columns:repeat(2,1fr)}.actions{display:grid;grid-template-columns:1fr}.actions button,.actions a{width:100%}.app{padding:8px 7px 70px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <h1>消えたデータを探す</h1>
+  <div class="card warn">
+    <p>このページはメインアプリを変更せず、このスマホ内とクラウドに残っているLifePlannerデータを表示します。復元ボタンを押すまでは上書きしません。</p>
+    <label>探す開始日</label><input id="from" type="date" value="2026-06-27">
+    <label>探す終了日</label><input id="to" type="date" value="2026-07-04">
+    <label>覚えている言葉で検索</label><input id="keyword" type="search" placeholder="例：目標、役割名、タスク名、ミッションの一部">
+    <div class="actions">
+      <button class="primary" id="scanLocal">スマホ内を探して表示</button>
+      <button class="primary" id="scanCloud">クラウドも探して表示</button>
+      <a class="btn" href="./?page=periods">個人用アプリへ戻る</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>クラウドログイン</h2>
+    <p>ログイン済みなら自動で読みます。出ない場合だけ入力してください。</p>
+    <input id="email" type="email" autocomplete="email" placeholder="メール">
+    <input id="password" type="password" autocomplete="current-password" placeholder="パスワード">
+    <div class="actions">
+      <button id="login">ログインしてクラウドを探す</button>
+      <button id="resetPassword">パスワード再設定</button>
+    </div>
+    <p id="status" class="small">未確認</p>
+  </div>
+  <div id="result"></div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script>
+const KEY='life_compass_unified_v1';
+const CONFIG={"apiKey":"AIzaSyBjda2oWyasBY5jeRxP4wQSBqruBCiYqso","authDomain":"lifeplanner-team.firebaseapp.com","projectId":"lifeplanner-team","storageBucket":"lifeplanner-team.firebasestorage.app","messagingSenderId":"172490873844","appId":"1:172490873844:web:5c70fb8e6fcf2552c1b7a1"};
+firebase.initializeApp(CONFIG);
+const auth=firebase.auth(), store=firebase.firestore();
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clone=o=>JSON.parse(JSON.stringify(o||{}));
+function range(){return{from:from.value||'2026-06-27',to:to.value||'2026-07-04'}}
+function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
+function normalize(d){if(!d||typeof d!=='object')return null;if(d.data&&(d.data.periods||d.data.journal))d=d.data;if(!Array.isArray(d.periods)&&!(d.journal&&typeof d.journal==='object'))return null;d=clone(d);d.periods=Array.isArray(d.periods)?d.periods:[];d.journal=d.journal&&typeof d.journal==='object'?d.journal:{};d.questions=Array.isArray(d.questions)?d.questions:[];d.reviewQuestions=Array.isArray(d.reviewQuestions)?d.reviewQuestions:[];d.periods.forEach(p=>{p.id=p.id||uid();p.roles=Array.isArray(p.roles)?p.roles:[];p.tasks=Array.isArray(p.tasks)?p.tasks:[];p.metrics=Array.isArray(p.metrics)?p.metrics:[];p.review=p.review||{}});d.activeId=d.activeId||d.periods[0]?.id||null;return d}
+function dates(d){return Object.keys(d.journal||{}).sort()}
+function overlaps(p,r=range()){return p?.start&&p?.end&&p.start<=r.to&&p.end>=r.from}
+function stats(d){const ds=dates(d),periods=d.periods||[],tasks=periods.reduce((n,p)=>n+(p.tasks||[]).filter(t=>t.text).length,0),roles=periods.reduce((n,p)=>n+(p.roles||[]).filter(r=>r.name||r.goal).length,0),matchPeriods=periods.filter(p=>overlaps(p)).length,matchDays=ds.filter(x=>x>=range().from&&x<=range().to).length;return{periods:periods.length,days:ds.length,tasks,roles,latest:ds.at(-1)||'',matchPeriods,matchDays,score:periods.length*10+ds.length*8+tasks*2+roles*3+matchPeriods*100+matchDays*80}}
+function meaningful(d){const s=stats(d);return s.days||s.tasks||s.roles||(d.periods||[]).some(p=>p.purpose||p.mission||p.goal3||p.goal1)}
+function timeFromKey(key){const m=String(key).match(/(?:backup_|cloud-|version-)(\d{12,})/);return m?+m[1]:0}
+function summaryRanges(d){return(d.periods||[]).map(p=>p.start||p.end?`${p.start||'?'}〜${p.end||'?'}`:'').filter(Boolean).slice(-6).join(' / ')||'期間なし'}
+function preview(d){
+  const r=range(),periods=(d.periods||[]).filter(p=>overlaps(p));
+  const chosen=(periods.length?periods:d.periods||[]).slice(-3);
+  const journal=Object.entries(d.journal||{}).filter(([day])=>day>=r.from&&day<=r.to).sort();
+  const plan=chosen.map(p=>[
+    `期間: ${p.start||'?'}〜${p.end||'?'}`,
+    p.purpose&&`目的: ${p.purpose}`,
+    p.mission&&`ミッション: ${p.mission}`,
+    p.goal3&&`3ヶ月目標: ${p.goal3}`,
+    p.goal1&&`1ヶ月目標: ${p.goal1}`,
+    ...(p.roles||[]).filter(x=>x.name||x.goal).slice(0,10).map(x=>`役割: ${x.name||''} / ${x.goal||''}`),
+    ...(p.tasks||[]).filter(x=>x.text).slice(0,20).map(x=>`タスク: ${x.date||''} ${x.text}`)
+  ].filter(Boolean).join('\n')).join('\n\n');
+  const journalText=journal.map(([day,r])=>`${day}\n${Object.values(r.answers||{}).filter(Boolean).join('\n')}`).join('\n\n');
+  return [plan||'プランなし',journalText&&`指定期間の日次振り返り:\n${journalText}`].filter(Boolean).join('\n\n---\n\n');
+}
+function localCandidates(){
+  const out=[],seen=new Set(),kw=keyword.value.trim().toLowerCase();
+  [[localStorage,'localStorage'],[sessionStorage,'sessionStorage']].forEach(([storage,area])=>{
+    for(let i=0;i<storage.length;i++){
+      const key=storage.key(i),raw=storage.getItem(key)||'';
+      try{
+        const parsed=JSON.parse(raw),data=normalize(parsed);
+        if(data&&meaningful(data)){
+          const sig=JSON.stringify({p:(data.periods||[]).map(p=>[p.start,p.end,p.goal1,p.goal3,p.mission]),j:dates(data)});
+          if(seen.has(sig))continue;seen.add(sig);
+          const label=key===KEY?'現在の通常保存':key.startsWith(KEY+'_backup_')?'自動バックアップ '+new Date(+key.replace(KEY+'_backup_','')).toLocaleString('ja-JP'):`${area}: ${key}`;
+          out.push({source:'端末',key,area,label,data,raw,when:timeFromKey(key),stats:stats(data)});
+        }else if(kw&&raw.toLowerCase().includes(kw)){
+          out.push({source:'生データ',key,area,label:`${area}: ${key}`,raw,data:null,when:0,stats:{periods:0,days:0,tasks:0,roles:0,latest:'',matchPeriods:0,matchDays:0,score:1}});
+        }
+      }catch{
+        if(kw&&raw.toLowerCase().includes(kw))out.push({source:'生データ',key,area,label:`${area}: ${key}`,raw,data:null,when:0,stats:{periods:0,days:0,tasks:0,roles:0,latest:'',matchPeriods:0,matchDays:0,score:1}});
+      }
+    }
+  });
+  return out;
+}
+async function cloudCandidates(){
+  const user=auth.currentUser;if(!user)throw new Error('クラウドを見るにはログインが必要です');
+  const out=[],base=store.collection('users').doc(user.uid);
+  const main=await base.collection('personalPlanner').doc('main').get();
+  if(main.exists&&main.data()?.data){const data=normalize(main.data().data);if(data)out.push({source:'クラウド',key:'cloud-main',label:'クラウド最新',data,raw:JSON.stringify(data),when:Date.now(),stats:stats(data)})}
+  const versions=await base.collection('personalPlannerVersions').limit(100).get();
+  versions.forEach(doc=>{const data=normalize(doc.data()?.data);if(data)out.push({source:'クラウド',key:'cloud-'+doc.id,label:'クラウド履歴 '+(doc.data()?.label||doc.id),data,raw:JSON.stringify(data),when:+doc.id||0,stats:stats(data)})});
+  return out;
+}
+function sortCandidates(list){
+  const kw=keyword.value.trim().toLowerCase();
+  return list.map(c=>({...c,hit:kw&&((c.raw||'').toLowerCase().includes(kw))})).sort((a,b)=>Number(b.stats.matchPeriods>0||b.stats.matchDays>0)-Number(a.stats.matchPeriods>0||a.stats.matchDays>0)||Number(b.hit)-Number(a.hit)||(b.when||0)-(a.when||0)||b.stats.score-a.stats.score);
+}
+function restore(c){
+  if(!c.data)return alert('これは生データ表示だけなので、そのまま復元できません');
+  if(!confirm(`${c.label} を個人用アプリに表示するデータとして復元しますか？\n今の保存内容はバックアップしてから置き換えます。`))return;
+  const current=localStorage.getItem(KEY);
+  if(current)localStorage.setItem(KEY+'_backup_'+Date.now(),current);
+  localStorage.setItem(KEY,JSON.stringify(c.data));
+  alert('復元しました。個人用アプリを開いて確認してください。');
+}
+function render(list){
+  const r=range();
+  list=sortCandidates(list);
+  result.innerHTML=`<div class="card ok"><b>${r.from}〜${r.to} の探索結果</b><p>${list.length}件見つかりました。候補の中で、6/27〜7/4の目標・役割・タスク・日次振り返りが出ているものを見てください。</p></div>`+
+  (list.length?list.map((c,i)=>`<div class="candidate ${c.stats.matchPeriods||c.stats.matchDays||c.hit?'ok':''}"><h2>${esc(c.label)}</h2><p class="small">種類: ${esc(c.source)} / キー: ${esc(c.key)}<br>期間範囲: ${esc(c.data?summaryRanges(c.data):'生データのみ')}<br>最新内省日: ${esc(c.stats.latest||'なし')} ${c.hit?'<span class="hit">検索語あり</span>':''}</p><div class="meta"><div><strong>${c.stats.periods}</strong>期間</div><div><strong>${c.stats.days}</strong>内省日</div><div><strong>${c.stats.roles}</strong>役割</div><div><strong>${c.stats.tasks}</strong>タスク</div></div><p class="small">指定期間一致: 期間 ${c.stats.matchPeriods||0} / 内省 ${c.stats.matchDays||0}日</p>${c.data?`<details open><summary>中身を表示</summary><textarea readonly>${esc(preview(c.data))}</textarea></details><div class="actions"><button class="primary" data-restore="${i}">これを個人用アプリに表示</button><button data-json="${i}">JSONを保存</button></div>`:`<details open><summary>生データ</summary><textarea readonly>${esc((c.raw||'').slice(0,12000))}</textarea></details>`}</div>`).join(''):'<div class="empty">候補が見つかりませんでした。</div>');
+  result.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restore(list[+b.dataset.restore]));
+  result.querySelectorAll('[data-json]').forEach(b=>b.onclick=()=>{const c=list[+b.dataset.json];const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(c.data,null,2)],{type:'application/json'}));a.download='lifeplanner-candidate-'+Date.now()+'.json';a.click();URL.revokeObjectURL(a.href)});
+}
+async function scan(includeCloud=false){
+  status.textContent='探索中...';
+  let list=localCandidates();
+  if(includeCloud){
+    try{list=list.concat(await cloudCandidates());status.textContent='端末とクラウドを読みました'}catch(e){status.textContent='クラウド読込失敗: '+(e.message||e)}
+  }else status.textContent='端末内を読みました';
+  render(list);
+}
+function msg(e){const c=e?.code||'';if(c.includes('wrong-password')||c.includes('invalid-credential'))return'メールかパスワードが違います';if(c.includes('user-not-found'))return'このメールは未登録です';if(c.includes('too-many-requests'))return'失敗が多く一時停止中です。少し待ってください';return e?.message||String(e)}
+scanLocal.onclick=()=>scan(false);
+scanCloud.onclick=()=>scan(true);
+login.onclick=async()=>{try{status.textContent='ログイン中...';const r=await auth.signInWithEmailAndPassword(email.value.trim(),password.value);email.value=r.user.email||email.value;await scan(true)}catch(e){status.textContent='ログイン失敗: '+msg(e)}};
+resetPassword.onclick=async()=>{try{if(!email.value.trim())return alert('メールを入れてください');await auth.sendPasswordResetEmail(email.value.trim());alert('再設定メールを送りました')}catch(e){alert(msg(e))}};
+auth.onAuthStateChanged(u=>{if(u){email.value=email.value||u.email||'';status.textContent='ログイン済み: '+(u.email||u.uid)}});
+scan(false);
+</script>
+</body>
+</html>
