@@ -41,6 +41,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script>
 const KEY='life_compass_unified_v1';
+const FORCE_RESTORE_KEY='lifeplanner_force_restore';
 const CONFIG={"apiKey":"AIzaSyBjda2oWyasBY5jeRxP4wQSBqruBCiYqso","authDomain":"lifeplanner-team.firebaseapp.com","projectId":"lifeplanner-team","storageBucket":"lifeplanner-team.firebasestorage.app","messagingSenderId":"172490873844","appId":"1:172490873844:web:5c70fb8e6fcf2552c1b7a1"};
 firebase.initializeApp(CONFIG);
 const auth=firebase.auth(), store=firebase.firestore();
@@ -113,6 +114,7 @@ function restore(c){
   const current=localStorage.getItem(KEY);
   if(current)localStorage.setItem(KEY+'_backup_'+Date.now(),current);
   localStorage.setItem(KEY,JSON.stringify(c.data));
+  localStorage.setItem(FORCE_RESTORE_KEY,JSON.stringify({savedAt:Date.now(),label:c.label,key:c.key,data:c.data}));
   alert('復元しました。個人用アプリを開いて確認してください。');
 }
 function render(list){
