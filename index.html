@@ -74,6 +74,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script>
 const KEY='life_compass_unified_v1';
+const FORCE_RESTORE_KEY='lifeplanner_force_restore';
 const DEFAULT_Q=[
   {id:'gratitude',label:'今日の感謝　三つ',placeholder:'① \n② \n③ '},
   {id:'seeking',label:'私は何を求めているのか？',placeholder:'今、自分が本当に求めているものは…'},
@@ -97,6 +98,7 @@ const fmt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('ja-JP',{year:'numeric
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function blankPeriod(){return{id:uid(),start:dateKey(),end:dateKey(new Date(Date.now()+6*864e5)),purpose:'',mission:'',goal3:'',goal1:'',theme:'',roles:[],priorities:[],tasks:[],metrics:[],review:{weekSummary:'',wentWell:'',challenges:'',learnings:'',keepDoing:'',nextChange:'',goalResult:'',roleResults:{},priorityResults:{},taskResults:{}},status:'active',createdAt:Date.now()}}
 function load(){try{return JSON.parse(localStorage.getItem(KEY))}catch{return null}}
+function consumeForcedRestore(){try{const raw=localStorage.getItem(FORCE_RESTORE_KEY);if(!raw)return null;const pack=JSON.parse(raw),data=pack?.data||pack;if(data&&typeof data==='object'&&(Array.isArray(data.periods)||data.journal)){localStorage.setItem(KEY,JSON.stringify(data));localStorage.removeItem(FORCE_RESTORE_KEY);return data}}catch(e){console.warn('forced restore skipped',e)}return null}
 function migrateLegacy(){
   const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
   try{
@@ -131,7 +133,7 @@ function migrateLegacy(){
   }catch(e){console.warn('Legacy migration skipped',e)}
   return fresh;
 }
-let db=load()||migrateLegacy();
+let db=consumeForcedRestore()||load()||migrateLegacy();
 if(!db.periods.length){const p=blankPeriod();db.periods=[p];db.activeId=p.id}
 db.questions=db.questions||DEFAULT_Q.map(q=>({...q}));db.reviewLabels=db.reviewLabels||Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]));db.reviewQuestions=(db.reviewQuestions||REVIEW_FIELDS).map(q=>({id:q.id||uid(),label:q.label||db.reviewLabels[q.id]||'質問',placeholder:q.placeholder||''}));db.reviewQuestions.forEach(q=>{if(db.reviewLabels[q.id])q.label=db.reviewLabels[q.id];db.reviewLabels[q.id]=q.label});db.journal=db.journal||{};db.gcal=db.gcal||{apiKey:'',clientId:'',connected:false,events:[]};
 const oldQuestionList=db.questions.map((q,i)=>typeof q==='string'?{id:'legacy_'+i,label:q,placeholder:''}:{id:q.id||uid(),label:q.label||'質問',placeholder:q.placeholder||''});
