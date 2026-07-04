@@ -196,11 +196,12 @@ document.getElementById('page-plan').addEventListener('input',e=>{const p=active
 document.getElementById('page-plan').addEventListener('change',e=>{const p=active();let taskChanged=false;if(e.target.dataset.taskDone!==undefined){const i=+e.target.dataset.taskDone;p.tasks[i].done=e.target.checked;refreshOneTaskDaySchedule(p,i);taskChanged=true}if(e.target.dataset.taskQ!==undefined){p.tasks[e.target.dataset.taskQ].q=e.target.value;taskChanged=true}if(e.target.dataset.taskRole!==undefined){p.tasks[e.target.dataset.taskRole].roleId=e.target.value;taskChanged=true}persist();if(taskChanged)scheduleGoogleTaskSync()});
 function persistAfterPaint(msg){requestAnimationFrame(()=>persist(msg))}
 function addRoleItem(){const p=active();p.roles.push({id:uid(),name:'',goal:''});rerenderPlanKeepScroll();persistAfterPaint()}
-function addTaskItem(){const p=active();p.tasks.push({id:uid(),text:'',q:'q2',roleId:'',date:'',startTime:'',endTime:'',done:false});rerenderPlanKeepScroll();persistAfterPaint()}
+function addTaskItem(){const p=active();p.tasks.push({id:uid(),text:'',q:'q2',roleId:'',date:'',startTime:'',endTime:'',done:false});renderAssignments(p);renderMatrix(p);persistAfterPaint()}
 const planPage=document.getElementById('page-plan');
-function handlePlanAdd(e){const b=e.target.closest('[data-add]');if(!b||!planPage.contains(b))return false;if(b.dataset.add!=='role'&&b.dataset.add!=='task')return false;e.preventDefault();e.stopPropagation();if(b.dataset.adding==='1')return true;b.dataset.adding='1';b.dataset.add==='role'?addRoleItem():addTaskItem();setTimeout(()=>{delete b.dataset.adding},300);return true}
-planPage.addEventListener('pointerup',handlePlanAdd);
-planPage.addEventListener('click',e=>{if(handlePlanAdd(e))return;const edit=e.target.closest('[data-edit-task]');if(edit){openEventEditor(+edit.dataset.editTask,'plan');return}const p=active();let changed=false;for(const [a,arr] of [['delRole','roles'],['delTask','tasks']])if(e.target.dataset[a]!==undefined){p[arr].splice(+e.target.dataset[a],1);changed=true}if(e.target.dataset.moveTask!==undefined){const i=+e.target.dataset.moveTask,j=i+(+e.target.dataset.dir);if(j>=0&&j<p.tasks.length){[p.tasks[i],p.tasks[j]]=[p.tasks[j],p.tasks[i]];changed=true}}if(!changed)return;e.preventDefault();persist();rerenderPlanKeepScroll()});
+let lastPlanAction=0;
+function handlePlanAction(e){const target=e.target.closest('[data-add],[data-del-role],[data-del-task],[data-edit-task],[data-move-task]');if(!target||!planPage.contains(target))return false;if(e.type==='click'&&Date.now()-lastPlanAction<450)return true;e.preventDefault();e.stopPropagation();lastPlanAction=Date.now();const p=active();if(target.dataset.add==='role'){addRoleItem();return true}if(target.dataset.add==='task'){addTaskItem();return true}if(target.dataset.editTask!==undefined){openEventEditor(+target.dataset.editTask,'plan');return true}if(target.dataset.delTask!==undefined){p.tasks.splice(+target.dataset.delTask,1);renderAssignments(p);renderMatrix(p);persistAfterPaint();return true}if(target.dataset.delRole!==undefined){p.roles.splice(+target.dataset.delRole,1);rerenderPlanKeepScroll();persistAfterPaint();return true}if(target.dataset.moveTask!==undefined){const i=+target.dataset.moveTask,j=i+(+target.dataset.dir);if(j>=0&&j<p.tasks.length){[p.tasks[i],p.tasks[j]]=[p.tasks[j],p.tasks[i]];rerenderPlanKeepScroll();persistAfterPaint()}return true}return false}
+planPage.addEventListener('pointerup',handlePlanAction);
+planPage.addEventListener('click',handlePlanAction);
 savePeriod.onclick=()=>{const p=active();p.start=periodStart.value;p.end=periodEnd.value;if(!p.start||!p.end||p.start>p.end)return toast('期間を正しく入力してください');persist('期間とプランを保存しました');renderPlan()};
 function nextPeriodFrom(src){const p=blankPeriod(),s=new Date((src.end||dateKey())+'T00:00:00'),e=new Date((src.end||dateKey())+'T00:00:00'),len=Math.max(0,Math.round((new Date((src.end||dateKey())+'T00:00:00')-new Date((src.start||dateKey())+'T00:00:00'))/864e5));s.setDate(s.getDate()+1);e.setDate(e.getDate()+1+len);p.start=dateKey(s);p.end=dateKey(e);p.purpose=src.purpose||'';p.mission=src.mission||'';p.goal3=src.goal3||'';p.goal1=src.goal1||'';p.roles=(src.roles||[]).map(r=>({id:uid(),name:r.name||'',goal:r.goal||''}));return p}
 newPeriod.onclick=()=>{const p=nextPeriodFrom(active());db.periods.unshift(p);db.activeId=p.id;persist('役割と目標を引き継いで新しい期間を作りました');renderPlan()};
@@ -248,10 +249,14 @@ async function deleteGoogleTaskEvent(t){if(!googleAccessToken||!t?.googleEventId
 function disconnectGoogleCalendar(){try{if(googleAccessToken)google.accounts.oauth2.revoke(googleAccessToken,()=>{})}catch{}googleAccessToken='';db.gcal.connected=false;db.gcal.events=[];persist('Google連携を解除しました');renderGoogle()}
 const connectGoogleBtn=document.getElementById('connectGoogle'),refreshGoogleBtn=document.getElementById('refreshGoogle'),pushGoogleTasksBtn=document.getElementById('pushGoogleTasks'),disconnectGoogleBtn=document.getElementById('disconnectGoogle');
 if(gClientId)gClientId.addEventListener('input',()=>{db.gcal.clientId=gClientId.value.trim();db.gcal.apiKey='';persist()});
-if(connectGoogleBtn)connectGoogleBtn.onclick=()=>connectGoogleCalendar('consent');
-if(refreshGoogleBtn)refreshGoogleBtn.onclick=()=>googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('');
-if(pushGoogleTasksBtn)pushGoogleTasksBtn.onclick=pushTasksToGoogle;
-if(disconnectGoogleBtn)disconnectGoogleBtn.onclick=disconnectGoogleCalendar;
+let lastGoogleAction=0;
+function handleGoogleAction(e){const b=e.target.closest('#connectGoogle,#refreshGoogle,#pushGoogleTasks,#disconnectGoogle');if(!b||!document.getElementById('page-google').contains(b))return false;if(e.type==='click'&&Date.now()-lastGoogleAction<450)return true;e.preventDefault();e.stopPropagation();lastGoogleAction=Date.now();if(b.id==='connectGoogle')connectGoogleCalendar('consent');else if(b.id==='refreshGoogle')googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('');else if(b.id==='pushGoogleTasks')pushTasksToGoogle();else if(b.id==='disconnectGoogle')disconnectGoogleCalendar();return true}
+document.getElementById('page-google').addEventListener('pointerup',handleGoogleAction);
+document.getElementById('page-google').addEventListener('click',handleGoogleAction);
+if(connectGoogleBtn)connectGoogleBtn.onclick=e=>handleGoogleAction(e);
+if(refreshGoogleBtn)refreshGoogleBtn.onclick=e=>handleGoogleAction(e);
+if(pushGoogleTasksBtn)pushGoogleTasksBtn.onclick=e=>handleGoogleAction(e);
+if(disconnectGoogleBtn)disconnectGoogleBtn.onclick=e=>handleGoogleAction(e);
 
 let questionDraft=[];
 function renderDaily(){const d=dateKey(),rec=db.journal[d]||{answers:{},periodId:(periodForDate(d)||active()).id};dailyTitle.textContent=`${fmt(d)} の日次振り返り`;questions.innerHTML=db.questions.map((q,i)=>`<div class="question"><div class="question-head"><span class="qnum">${String(i+1).padStart(2,'0')}</span><label>${esc(q.label)}</label></div><textarea data-answer="${q.id}" placeholder="${esc(q.placeholder||'正直に、短くても大丈夫です')}">${esc(rec.answers[q.id]||'')}</textarea></div>`).join('')}
