@@ -99,9 +99,9 @@ const fmt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('ja-JP',{year:'numeric
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function blankPeriod(){return{id:uid(),start:dateKey(),end:dateKey(new Date(Date.now()+6*864e5)),purpose:'',mission:'',goal3:'',goal1:'',theme:'',roles:[],priorities:[],tasks:[],metrics:[],review:{weekSummary:'',wentWell:'',challenges:'',learnings:'',keepDoing:'',nextChange:'',goalResult:'',roleResults:{},priorityResults:{},taskResults:{}},status:'active',createdAt:Date.now()}}
 function readLocalData(key){try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):null}catch{return null}}
-function localSavedAt(key){return +(localStorage.getItem(key+'_saved_at')||0)||0}
-function writeLocalData(data){const text=JSON.stringify(data),now=String(Date.now());localStorage.setItem(KEY,text);localStorage.setItem(LATEST_KEY,text);localStorage.setItem(KEY+'_saved_at',now);localStorage.setItem(LATEST_KEY+'_saved_at',now)}
-function load(){const list=[KEY,LATEST_KEY].map(key=>({key,data:readLocalData(key),stamp:localSavedAt(key)})).filter(x=>x.data&&typeof x.data==='object').sort((a,b)=>b.stamp-a.stamp);return list[0]?.data||null}
+function localSavedAt(key,data){return +(localStorage.getItem(key+'_saved_at')||0)||+(data?.updatedAt||0)||0}
+function writeLocalData(data){data.updatedAt=Date.now();const text=JSON.stringify(data),now=String(data.updatedAt);localStorage.setItem(KEY,text);localStorage.setItem(LATEST_KEY,text);localStorage.setItem(KEY+'_saved_at',now);localStorage.setItem(LATEST_KEY+'_saved_at',now)}
+function load(){const list=[KEY,LATEST_KEY].map(key=>{const data=readLocalData(key);return{key,data,stamp:localSavedAt(key,data)}}).filter(x=>x.data&&typeof x.data==='object').sort((a,b)=>b.stamp-a.stamp);return list[0]?.data||null}
 function consumeForcedRestore(){try{const raw=localStorage.getItem(FORCE_RESTORE_KEY);if(!raw)return null;const pack=JSON.parse(raw),data=pack?.data||pack;if(data&&typeof data==='object'&&(Array.isArray(data.periods)||data.journal)){writeLocalData(data);localStorage.removeItem(FORCE_RESTORE_KEY);return data}}catch(e){console.warn('forced restore skipped',e)}return null}
 function migrateLegacy(){
   const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
