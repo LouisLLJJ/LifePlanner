@@ -348,7 +348,6 @@ clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削
 window.addEventListener('pagehide',rememberDisplayedData);
 window.addEventListener('beforeunload',rememberDisplayedData);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')rememberDisplayedData()});
-setInterval(rememberDisplayedData,2000);
 const initialPage=new URLSearchParams(location.search).get('page');if(['plan','calendar','daily','review','history','periods','google'].includes(initialPage))showPage(initialPage);else{renderPlan();rememberDisplayedData()}
 </script>
 </body>
