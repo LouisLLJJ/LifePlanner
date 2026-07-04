@@ -194,12 +194,9 @@ document.getElementById('page-plan').addEventListener('input',e=>{const p=active
 document.getElementById('page-plan').addEventListener('change',e=>{const p=active();let taskChanged=false;if(e.target.dataset.taskDone!==undefined){const i=+e.target.dataset.taskDone;p.tasks[i].done=e.target.checked;refreshOneTaskDaySchedule(p,i);taskChanged=true}if(e.target.dataset.taskQ!==undefined){p.tasks[e.target.dataset.taskQ].q=e.target.value;taskChanged=true}if(e.target.dataset.taskRole!==undefined){p.tasks[e.target.dataset.taskRole].roleId=e.target.value;taskChanged=true}persist();if(taskChanged)scheduleGoogleTaskSync()});
 function addRoleItem(){const p=active();p.roles.push({id:uid(),name:'',goal:''});persist();rerenderPlanKeepScroll()}
 function addTaskItem(){const p=active();p.tasks.push({id:uid(),text:'',q:'q2',roleId:'',date:'',startTime:'',endTime:'',done:false});persist();rerenderPlanKeepScroll()}
-let lastAddTap=0,lastAddTapType='';
-function shouldHandleTap(e,lastTime,lastType){const now=Date.now();if(e.type==='pointerdown')return{ok:true,time:now,type:e.type};if(now-lastTime<700){e.preventDefault();e.stopPropagation();return{ok:false,time:lastTime,type:lastType}}return{ok:true,time:now,type:e.type}}
-function handleAddTap(e){const target=e.target?.nodeType===3?e.target.parentElement:e.target,add=target?.closest?.('[data-add]');if(!add||!document.getElementById('page-plan').contains(add))return;const tap=shouldHandleTap(e,lastAddTap,lastAddTapType);lastAddTap=tap.time;lastAddTapType=tap.type;if(!tap.ok)return;e.preventDefault();e.stopPropagation();if(add.dataset.add==='role')addRoleItem();if(add.dataset.add==='task')addTaskItem()}
-document.addEventListener('pointerdown',handleAddTap,true);
-document.addEventListener('touchend',handleAddTap,true);
-document.addEventListener('click',handleAddTap,true);
+function bindTap(selector,action,scope=document){let lastTouch=0;const find=e=>{const target=e.target?.nodeType===3?e.target.parentElement:e.target,btn=target?.closest?.(selector);return btn&&scope.contains(btn)?btn:null};document.addEventListener('touchend',e=>{if(!find(e))return;lastTouch=Date.now();e.preventDefault();e.stopPropagation();action(e)},true);document.addEventListener('click',e=>{if(!find(e))return;if(Date.now()-lastTouch<800){e.preventDefault();e.stopPropagation();return}e.preventDefault();e.stopPropagation();action(e)},true)}
+bindTap('[data-add="role"]',addRoleItem,document.getElementById('page-plan'));
+bindTap('[data-add="task"]',addTaskItem,document.getElementById('page-plan'));
 document.getElementById('page-plan').addEventListener('click',e=>{const edit=e.target.closest('[data-edit-task]');if(edit){openEventEditor(+edit.dataset.editTask,'plan');return}const p=active();let changed=false;if(e.target.dataset.add==='role'){p.roles.push({id:uid(),name:'',goal:''});changed=true}if(e.target.dataset.add==='task'){p.tasks.push({id:uid(),text:'',q:'q2',roleId:'',date:'',startTime:'',endTime:'',done:false});changed=true}for(const [a,arr] of [['delRole','roles'],['delTask','tasks']])if(e.target.dataset[a]!==undefined){p[arr].splice(+e.target.dataset[a],1);changed=true}if(e.target.dataset.moveTask!==undefined){const i=+e.target.dataset.moveTask,j=i+(+e.target.dataset.dir);if(j>=0&&j<p.tasks.length){[p.tasks[i],p.tasks[j]]=[p.tasks[j],p.tasks[i]];changed=true}}if(!changed)return;e.preventDefault();persist();rerenderPlanKeepScroll()});
 savePeriod.onclick=()=>{const p=active();p.start=periodStart.value;p.end=periodEnd.value;if(!p.start||!p.end||p.start>p.end)return toast('期間を正しく入力してください');persist('期間とプランを保存しました');renderPlan()};
 function nextPeriodFrom(src){const p=blankPeriod(),s=new Date((src.end||dateKey())+'T00:00:00'),e=new Date((src.end||dateKey())+'T00:00:00'),len=Math.max(0,Math.round((new Date((src.end||dateKey())+'T00:00:00')-new Date((src.start||dateKey())+'T00:00:00'))/864e5));s.setDate(s.getDate()+1);e.setDate(e.getDate()+1+len);p.start=dateKey(s);p.end=dateKey(e);p.purpose=src.purpose||'';p.mission=src.mission||'';p.goal3=src.goal3||'';p.goal1=src.goal1||'';p.roles=(src.roles||[]).map(r=>({id:uid(),name:r.name||'',goal:r.goal||''}));return p}
@@ -247,14 +244,10 @@ async function deleteGoogleTaskEvent(t){if(!googleAccessToken||!t?.googleEventId
 function disconnectGoogleCalendar(){try{if(googleAccessToken)google.accounts.oauth2.revoke(googleAccessToken,()=>{})}catch{}googleAccessToken='';db.gcal.connected=false;db.gcal.events=[];persist('Google連携を解除しました');renderGoogle()}
 connectGoogle.onclick=()=>connectGoogleCalendar('consent');refreshGoogle.onclick=()=>googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('');pushGoogleTasks.onclick=pushTasksToGoogle;disconnectGoogle.onclick=disconnectGoogleCalendar;
 let lastGoogleConnectTap=0,lastGoogleRefreshTap=0,lastGooglePushTap=0,lastGoogleDisconnectTap=0;
-function handleGoogleConnectTap(e){lastGoogleConnectTap=tapButton(e,'#connectGoogle',lastGoogleConnectTap,()=>connectGoogleCalendar('consent'))}
-function handleGoogleRefreshTap(e){lastGoogleRefreshTap=tapButton(e,'#refreshGoogle',lastGoogleRefreshTap,()=>googleAccessToken?fetchGoogleEvents():connectGoogleCalendar(''))}
-function handleGooglePushTap(e){lastGooglePushTap=tapButton(e,'#pushGoogleTasks',lastGooglePushTap,pushTasksToGoogle)}
-function handleGoogleDisconnectTap(e){lastGoogleDisconnectTap=tapButton(e,'#disconnectGoogle',lastGoogleDisconnectTap,disconnectGoogleCalendar)}
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleGoogleConnectTap,true));
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleGoogleRefreshTap,true));
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleGooglePushTap,true));
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleGoogleDisconnectTap,true));
+bindTap('#connectGoogle',()=>connectGoogleCalendar('consent'));
+bindTap('#refreshGoogle',()=>googleAccessToken?fetchGoogleEvents():connectGoogleCalendar(''));
+bindTap('#pushGoogleTasks',pushTasksToGoogle);
+bindTap('#disconnectGoogle',disconnectGoogleCalendar);
 
 let questionDraft=[];
 function renderDaily(){const d=dateKey(),rec=db.journal[d]||{answers:{},periodId:(periodForDate(d)||active()).id};dailyTitle.textContent=`${fmt(d)} の日次振り返り`;questions.innerHTML=db.questions.map((q,i)=>`<div class="question"><div class="question-head"><span class="qnum">${String(i+1).padStart(2,'0')}</span><label>${esc(q.label)}</label></div><textarea data-answer="${q.id}" placeholder="${esc(q.placeholder||'正直に、短くても大丈夫です')}">${esc(rec.answers[q.id]||'')}</textarea></div>`).join('')}
@@ -267,13 +260,8 @@ function addDailyQuestion(){questionDraft.push({id:uid(),label:'新しい質問'
 addQuestion.onclick=addDailyQuestion;
 function saveDailyQuestions(){document.querySelectorAll('[data-edit-question]').forEach(x=>{if(questionDraft[x.dataset.editQuestion])questionDraft[x.dataset.editQuestion].label=x.value});document.querySelectorAll('[data-edit-placeholder]').forEach(x=>{if(questionDraft[x.dataset.editPlaceholder])questionDraft[x.dataset.editPlaceholder].placeholder=x.value});const valid=questionDraft.filter(q=>q.label.trim());if(!valid.length)return toast('質問を1つ以上残してください');db.questions=valid;db.questionLabels=Object.fromEntries(valid.map(q=>[q.id,q.label]));persist('内省の質問を保存しました');questionEditor.classList.remove('open');questionEditorList.innerHTML='';toggleQuestionEditor.textContent='質問を編集';renderDaily()}
 let lastQuestionSaveTap=0,lastQuestionAddTap=0;
-function tapButton(e,selector,last,action){const target=e.target?.nodeType===3?e.target.parentElement:e.target,btn=target?.closest?.(selector);if(!btn)return last;const tap=shouldHandleTap(e,last,'');if(!tap.ok)return tap.time;e.preventDefault();e.stopPropagation();action();return tap.time}
-function handleDailyQuestionAddTap(e){lastQuestionAddTap=tapButton(e,'#addQuestion',lastQuestionAddTap,addDailyQuestion)}
-function handleDailyQuestionSaveTap(e){lastQuestionSaveTap=tapButton(e,'#saveQuestions',lastQuestionSaveTap,saveDailyQuestions)}
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleDailyQuestionAddTap,true));
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleDailyQuestionSaveTap,true));
-saveQuestions.addEventListener('pointerup',handleDailyQuestionSaveTap,true);
-saveQuestions.addEventListener('click',handleDailyQuestionSaveTap,true);
+bindTap('#addQuestion',addDailyQuestion);
+bindTap('#saveQuestions',saveDailyQuestions);
 let historyMode='daily';
 function renderHistory(){dailyHistoryControls.style.display=historyMode==='daily'?'block':'none';if(historyMode==='weekly'){renderWeeklyHistory();return}const from=historyFrom.value,to=historyTo.value;const rows=Object.entries(db.journal).filter(([d])=>(!from||d>=from)&&(!to||d<=to)).sort(([a],[b])=>b.localeCompare(a));historyList.innerHTML=rows.map(([d,r])=>{const p=db.periods.find(x=>x.id===r.periodId),currentIds=new Set(db.questions.map(q=>q.id));const current=db.questions.map(q=>`<div class="answer"><b>${esc(q.label)}</b><textarea class="history-edit-answer" data-history-answer="${q.id}">${esc(r.answers?.[q.id]||'')}</textarea></div>`).join('');const removed=Object.entries(r.answers||{}).filter(([id,v])=>v&&!currentIds.has(id)).map(([id,v])=>`<div class="answer"><b>${esc(db.questionLabels[id]||'削除済みの質問')}</b><textarea class="history-edit-answer" data-history-answer="${id}">${esc(v)}</textarea></div>`).join('');return`<details class="history-card" data-history-date="${d}"><summary><span><b>${fmt(d)}</b><br><span class="period-link">${p?fmt(p.start)+' 〜 '+fmt(p.end):'期間なし'}</span></span><span>${Object.values(r.answers||{}).filter(Boolean).length}回答</span></summary><div class="history-body">${current}${removed}<button class="btn primary" data-save-history="${d}">この日の内容を保存</button></div></details>`}).join('')||'<div class="empty">日次振り返りはまだありません。</div>'}
 function weeklySummaryHistoryHtml(r){const ids=new Set(db.reviewQuestions.map(q=>q.id)),current=db.reviewQuestions.map(x=>`<div class="answer"><b>${esc(x.label)}</b><div>${esc(r[x.id]||'（未記入）')}</div></div>`).join(''),removed=Object.entries(r).filter(([id,v])=>!ids.has(id)&&db.reviewLabels[id]&&typeof v==='string'&&v).map(([id,v])=>`<div class="answer"><b>${esc(db.reviewLabels[id])}（削除済み）</b><div>${esc(v)}</div></div>`).join('');return current+removed}
@@ -306,12 +294,8 @@ function addWeeklyQuestion(){reviewQuestionDraft.push({id:uid(),label:'新しい
 addReviewQuestion.onclick=addWeeklyQuestion;
 function saveWeeklyQuestions(){document.querySelectorAll('[data-edit-review-question]').forEach(x=>{if(reviewQuestionDraft[x.dataset.editReviewQuestion])reviewQuestionDraft[x.dataset.editReviewQuestion].label=x.value});document.querySelectorAll('[data-edit-review-placeholder]').forEach(x=>{if(reviewQuestionDraft[x.dataset.editReviewPlaceholder])reviewQuestionDraft[x.dataset.editReviewPlaceholder].placeholder=x.value});const valid=reviewQuestionDraft.filter(q=>q.label.trim());if(!valid.length)return toast('質問を1つ以上残してください');db.reviewQuestions=valid;db.reviewLabels=Object.fromEntries(valid.map(q=>[q.id,q.label]));db.reviewQuestionDefaultsVersion=3;db.reviewSameAsDailyV1=false;persist('週次の質問を保存しました');reviewEditor.classList.remove('open');reviewEditorList.innerHTML='';toggleReviewEditor.textContent='質問を編集';renderReview()}
 let lastReviewQuestionSaveTap=0,lastReviewQuestionAddTap=0;
-function handleWeeklyQuestionAddTap(e){lastReviewQuestionAddTap=tapButton(e,'#addReviewQuestion',lastReviewQuestionAddTap,addWeeklyQuestion)}
-function handleWeeklyQuestionSaveTap(e){lastReviewQuestionSaveTap=tapButton(e,'#saveReviewLabels',lastReviewQuestionSaveTap,saveWeeklyQuestions)}
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleWeeklyQuestionAddTap,true));
-['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleWeeklyQuestionSaveTap,true));
-saveReviewLabels.addEventListener('pointerup',handleWeeklyQuestionSaveTap,true);
-saveReviewLabels.addEventListener('click',handleWeeklyQuestionSaveTap,true);
+bindTap('#addReviewQuestion',addWeeklyQuestion);
+bindTap('#saveReviewLabels',saveWeeklyQuestions);
 function saveReviewText(p){document.querySelectorAll('[data-review-answer]').forEach(x=>p.review[x.dataset.reviewAnswer]=x.value)}
 saveReview.onclick=()=>{const p=active();saveReviewText(p);if(!p.planArchive)p.planArchive=JSON.parse(JSON.stringify(planArchive(p)));p.scheduleArchive=JSON.parse(JSON.stringify(currentScheduleSnapshot(p)));p.review.savedAt=Date.now();persist('週次振り返り・プラン・スケジュールを保存しました');renderReview()};
 closePeriod.onclick=()=>{const p=active();saveReviewText(p);if(!p.planArchive)p.planArchive=JSON.parse(JSON.stringify(planArchive(p)));p.scheduleArchive=JSON.parse(JSON.stringify(currentScheduleSnapshot(p)));p.status='archived';p.review.completedAt=Date.now();persist('この期間を完了にしました');renderReview()};
