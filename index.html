@@ -149,7 +149,8 @@ function captureVisibleEdits(){
 }
 function rememberDisplayedData(){if(skipRememberDisplayed)return;try{captureVisibleEdits();if(isStoredPlanner(db)){db._savedAt=Date.now();localStorage.setItem(LAST_DISPLAY_KEY,JSON.stringify(db));localStorage.setItem(KEY,JSON.stringify(db))}}catch(e){console.warn('last display save skipped',e)}}
 let visibleAutoSaveTimer=null;
-function scheduleVisibleAutoSave(){clearTimeout(visibleAutoSaveTimer);visibleAutoSaveTimer=setTimeout(rememberDisplayedData,120)}
+function saveVisibleNow(){rememberDisplayedData()}
+function scheduleVisibleAutoSave(){saveVisibleNow();clearTimeout(visibleAutoSaveTimer);visibleAutoSaveTimer=setTimeout(saveVisibleNow,120)}
 function load(){const last=readStored(LAST_DISPLAY_KEY),main=readStored(KEY),restored=readStored(RESTORED_KEY);if(isStoredPlanner(last))return last;if(restored&&(!main||storageStamp(restored)>storageStamp(main)))return restored;return main}
 function migrateLegacy(){
   const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
@@ -345,7 +346,9 @@ exportData.onclick=()=>{const a=document.createElement('a');a.href=URL.createObj
 importData.onchange=async e=>{try{const x=JSON.parse(await e.target.files[0].text());if(!x.periods||!x.journal)throw 0;db=x;persist('データを読み込みました');renderPeriods()}catch{toast('読み込めないファイルです')}};
 clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削除しますか？')){skipRememberDisplayed=true;localStorage.removeItem(KEY);localStorage.removeItem(RESTORED_KEY);localStorage.removeItem(LAST_DISPLAY_KEY);location.reload()}};
 window.addEventListener('pagehide',rememberDisplayedData);
+window.addEventListener('beforeunload',rememberDisplayedData);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')rememberDisplayedData()});
+setInterval(rememberDisplayedData,2000);
 const initialPage=new URLSearchParams(location.search).get('page');if(['plan','calendar','daily','review','history','periods','google'].includes(initialPage))showPage(initialPage);else{renderPlan();rememberDisplayedData()}
 </script>
 </body>
