@@ -238,7 +238,11 @@ async function pushTasksToGoogle(){if(!googleAccessToken)return connectGoogleCal
 function scheduleGoogleTaskSync(){if(!googleAccessToken)return;clearTimeout(googleAutoSyncTimer);googleStatus.textContent='Google自動反映待ち…';googleAutoSyncTimer=setTimeout(()=>pushTasksToGoogle(),900)}
 async function deleteGoogleTaskEvent(t){if(!googleAccessToken||!t?.googleEventId)return;try{await googleApi(`calendars/primary/events/${encodeURIComponent(t.googleEventId)}`,{method:'DELETE'});t.googleEventId='';persist('Googleカレンダーから予定を削除しました')}catch(e){console.warn('Google delete skipped',e)}}
 function disconnectGoogleCalendar(){try{if(googleAccessToken)google.accounts.oauth2.revoke(googleAccessToken,()=>{})}catch{}googleAccessToken='';db.gcal.connected=false;db.gcal.events=[];persist('Google連携を解除しました');renderGoogle()}
-connectGoogle.onclick=()=>connectGoogleCalendar('consent');refreshGoogle.onclick=()=>googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('');pushGoogleTasks.onclick=pushTasksToGoogle;disconnectGoogle.onclick=disconnectGoogleCalendar;
+const connectGoogleBtn=document.getElementById('connectGoogle'),refreshGoogleBtn=document.getElementById('refreshGoogle'),pushGoogleTasksBtn=document.getElementById('pushGoogleTasks'),disconnectGoogleBtn=document.getElementById('disconnectGoogle');
+if(connectGoogleBtn)connectGoogleBtn.onclick=()=>connectGoogleCalendar('consent');
+if(refreshGoogleBtn)refreshGoogleBtn.onclick=()=>googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('');
+if(pushGoogleTasksBtn)pushGoogleTasksBtn.onclick=pushTasksToGoogle;
+if(disconnectGoogleBtn)disconnectGoogleBtn.onclick=disconnectGoogleCalendar;
 
 let questionDraft=[];
 function renderDaily(){const d=dateKey(),rec=db.journal[d]||{answers:{},periodId:(periodForDate(d)||active()).id};dailyTitle.textContent=`${fmt(d)} の日次振り返り`;questions.innerHTML=db.questions.map((q,i)=>`<div class="question"><div class="question-head"><span class="qnum">${String(i+1).padStart(2,'0')}</span><label>${esc(q.label)}</label></div><textarea data-answer="${q.id}" placeholder="${esc(q.placeholder||'正直に、短くても大丈夫です')}">${esc(rec.answers[q.id]||'')}</textarea></div>`).join('')}
