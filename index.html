@@ -48,7 +48,7 @@
 
     <section class="page" id="page-calendar"><div class="grid"><div class="card"><div id="calendarPurpose" class="calendar-purpose"></div><h2 id="calendarTitle">週間スケジュール</h2><p class="sub">予定をタップして内容を編集できます。上下にドラッグすると15分単位で時間を変更できます。</p><div class="calendar-wrap"><div id="weekCalendar" class="week-calendar"></div></div></div><div class="card"><h2>期間の役割と目標</h2><div id="calendarRoles"></div></div></div></section>
 
-    <section class="page" id="page-google"><div class="grid"><div class="card"><div class="eyebrow">Google Calendar</div><h2>Googleカレンダー連携</h2><div class="gcal-note">Googleカレンダーの予定を読み込み、アプリで作ったこの期間のタスク予定をGoogleカレンダーへ反映できます。OAuth Client IDだけこの端末に保存されます。</div><input id="gApiKey" type="hidden"><label class="label">OAuth Client ID</label><input id="gClientId" type="text" placeholder="xxxxx.apps.googleusercontent.com"><div class="actions"><a href="#" class="btn primary" id="connectGoogle" onclick="connectGoogleCalendar('consent');return false">Googleログインして予定を読み込む</a><a href="#" class="btn primary" id="pushGoogleTasks" onclick="pushTasksToGoogle();return false">アプリの予定をGoogleへ反映</a><a href="#" class="btn" id="refreshGoogle" onclick="googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('');return false">予定を更新</a><a href="#" class="btn danger" id="disconnectGoogle" onclick="disconnectGoogleCalendar();return false">接続解除</a></div><div id="googleStatus" class="result-box"></div></div><div class="card"><div class="eyebrow">Calendar Preview</div><h2>読み込んだ予定</h2><div id="googlePreview"></div></div></div></section>
+    <section class="page" id="page-google"><div class="grid"><div class="card"><div class="eyebrow">Google Calendar</div><h2>Googleカレンダー連携</h2><div class="gcal-note">Googleカレンダーの予定を読み込み、アプリで作ったこの期間のタスク予定をGoogleカレンダーへ反映できます。OAuth Client IDだけこの端末に保存されます。</div><input id="gApiKey" type="hidden"><label class="label">OAuth Client ID</label><input id="gClientId" type="text" placeholder="xxxxx.apps.googleusercontent.com"><div class="actions"><a href="#" class="btn primary" id="connectGoogle" onclick="connectGoogleCalendar('consent');return false">Googleログインして予定を読み込む</a><a href="#" class="btn primary" id="pushGoogleTasks" onclick="pushTasksToGoogle();return false">アプリの予定をGoogleへ反映</a><a href="#" class="btn" id="refreshGoogle" onclick="refreshGoogleCalendar();return false">予定を更新</a><a href="#" class="btn danger" id="disconnectGoogle" onclick="disconnectGoogleCalendar();return false">接続解除</a></div><div id="googleStatus" class="result-box"></div></div><div class="card"><div class="eyebrow">Calendar Preview</div><h2>読み込んだ予定</h2><div id="googlePreview"></div></div></div></section>
 
     <section class="page" id="page-daily"><div class="grid"><div class="card"><div class="section-head"><div><h2 id="dailyTitle">今日の内省</h2></div><button class="btn" id="toggleQuestionEditor">質問を編集</button></div><div class="question-editor" id="questionEditor"><p class="sub">質問の追加・編集・並べ替え・削除ができます。過去の回答は削除されません。</p><div id="questionEditorList"></div><div class="actions"><a href="#" class="btn" id="addQuestion" onclick="addDailyQuestion();return false">＋ 質問を追加</a><a href="#" class="btn primary" id="saveQuestions" onclick="saveDailyQuestions();return false">質問を保存</a></div></div><div id="questions"></div><div class="savebar"><button class="btn primary" id="saveDaily">今日の記録を保存</button></div></div></div></section>
 
@@ -292,6 +292,17 @@ periodList.onclick=e=>{const id=e.target.dataset.openPeriod||e.target.dataset.de
 exportData.onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(db,null,2)],{type:'application/json'}));a.download=`life-compass-${dateKey()}.json`;a.click();URL.revokeObjectURL(a.href)};
 importData.onchange=async e=>{try{const x=JSON.parse(await e.target.files[0].text());if(!x.periods||!x.journal)throw 0;db=x;persist('データを読み込みました');renderPeriods()}catch{toast('読み込めないファイルです')}};
 clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削除しますか？')){localStorage.removeItem(KEY);location.reload()}};
+window.addRoleItem=addRoleItem;
+window.addTaskItem=addTaskItem;
+window.addDailyQuestion=addDailyQuestion;
+window.saveDailyQuestions=saveDailyQuestions;
+window.addWeeklyQuestion=addWeeklyQuestion;
+window.saveWeeklyQuestions=saveWeeklyQuestions;
+window.addMetricItem=addMetricItem;
+window.connectGoogleCalendar=connectGoogleCalendar;
+window.pushTasksToGoogle=pushTasksToGoogle;
+window.disconnectGoogleCalendar=disconnectGoogleCalendar;
+window.refreshGoogleCalendar=function(){return googleAccessToken?fetchGoogleEvents():connectGoogleCalendar('')};
 const initialPage=new URLSearchParams(location.search).get('page');if(['plan','calendar','daily','review','history','periods','google'].includes(initialPage))showPage(initialPage);else renderPlan();
 </script>
 </body>
