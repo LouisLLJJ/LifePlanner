@@ -252,10 +252,15 @@ function renderQuestionEditor(){questionEditorList.innerHTML=questionDraft.map((
 toggleQuestionEditor.onclick=()=>{const opening=!questionEditor.classList.contains('open');questionEditor.classList.toggle('open');toggleQuestionEditor.textContent=opening?'編集を閉じる':'質問を編集';if(opening){questionDraft=db.questions.map(q=>({...q}));renderQuestionEditor()}};
 questionEditorList.addEventListener('input',e=>{if(e.target.dataset.editQuestion!==undefined)questionDraft[e.target.dataset.editQuestion].label=e.target.value;if(e.target.dataset.editPlaceholder!==undefined)questionDraft[e.target.dataset.editPlaceholder].placeholder=e.target.value});
 questionEditorList.addEventListener('click',e=>{let changed=false;if(e.target.dataset.questionDelete!==undefined){questionDraft.splice(+e.target.dataset.questionDelete,1);changed=true}if(e.target.dataset.questionMove!==undefined){const i=+e.target.dataset.questionMove,j=i+(+e.target.dataset.questionDir);if(j>=0&&j<questionDraft.length){[questionDraft[i],questionDraft[j]]=[questionDraft[j],questionDraft[i]];changed=true}}if(changed)renderQuestionEditor()});
-addQuestion.onclick=()=>{questionDraft.push({id:uid(),label:'新しい質問',placeholder:''});renderQuestionEditor()};
+function addDailyQuestion(){questionDraft.push({id:uid(),label:'新しい質問',placeholder:''});renderQuestionEditor()}
+addQuestion.onclick=addDailyQuestion;
 function saveDailyQuestions(){document.querySelectorAll('[data-edit-question]').forEach(x=>{if(questionDraft[x.dataset.editQuestion])questionDraft[x.dataset.editQuestion].label=x.value});document.querySelectorAll('[data-edit-placeholder]').forEach(x=>{if(questionDraft[x.dataset.editPlaceholder])questionDraft[x.dataset.editPlaceholder].placeholder=x.value});const valid=questionDraft.filter(q=>q.label.trim());if(!valid.length)return toast('質問を1つ以上残してください');db.questions=valid;db.questionLabels=Object.fromEntries(valid.map(q=>[q.id,q.label]));persist('内省の質問を保存しました');questionEditor.classList.remove('open');questionEditorList.innerHTML='';toggleQuestionEditor.textContent='質問を編集';renderDaily()}
-let lastQuestionSaveTap=0;
-function handleDailyQuestionSaveTap(e){const now=Date.now();if(now-lastQuestionSaveTap<450){e.preventDefault();e.stopPropagation();return}lastQuestionSaveTap=now;e.preventDefault();e.stopPropagation();saveDailyQuestions()}
+let lastQuestionSaveTap=0,lastQuestionAddTap=0;
+function tapButton(e,selector,last,action){const target=e.target?.nodeType===3?e.target.parentElement:e.target,btn=target?.closest?.(selector);if(!btn)return last;const now=Date.now();if(now-last<450){e.preventDefault();e.stopPropagation();return last}e.preventDefault();e.stopPropagation();action();return now}
+function handleDailyQuestionAddTap(e){lastQuestionAddTap=tapButton(e,'#addQuestion',lastQuestionAddTap,addDailyQuestion)}
+function handleDailyQuestionSaveTap(e){lastQuestionSaveTap=tapButton(e,'#saveQuestions',lastQuestionSaveTap,saveDailyQuestions)}
+['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleDailyQuestionAddTap,true));
+['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleDailyQuestionSaveTap,true));
 saveQuestions.addEventListener('pointerup',handleDailyQuestionSaveTap,true);
 saveQuestions.addEventListener('click',handleDailyQuestionSaveTap,true);
 let historyMode='daily';
@@ -286,10 +291,14 @@ document.getElementById('page-review').addEventListener('click',e=>{const p=acti
 toggleReviewEditor.onclick=()=>{const opening=!reviewEditor.classList.contains('open');reviewEditor.classList.toggle('open');toggleReviewEditor.textContent=opening?'編集を閉じる':'質問を編集';if(opening){reviewQuestionDraft=db.reviewQuestions.map(q=>({...q}));renderReviewQuestionEditor()}};
 reviewEditorList.addEventListener('input',e=>{if(e.target.dataset.editReviewQuestion!==undefined)reviewQuestionDraft[e.target.dataset.editReviewQuestion].label=e.target.value;if(e.target.dataset.editReviewPlaceholder!==undefined)reviewQuestionDraft[e.target.dataset.editReviewPlaceholder].placeholder=e.target.value});
 reviewEditorList.addEventListener('click',e=>{let changed=false;if(e.target.dataset.reviewQuestionDelete!==undefined){reviewQuestionDraft.splice(+e.target.dataset.reviewQuestionDelete,1);changed=true}if(e.target.dataset.reviewQuestionMove!==undefined){const i=+e.target.dataset.reviewQuestionMove,j=i+(+e.target.dataset.reviewQuestionDir);if(j>=0&&j<reviewQuestionDraft.length){[reviewQuestionDraft[i],reviewQuestionDraft[j]]=[reviewQuestionDraft[j],reviewQuestionDraft[i]];changed=true}}if(changed)renderReviewQuestionEditor()});
-addReviewQuestion.onclick=()=>{reviewQuestionDraft.push({id:uid(),label:'新しい質問',placeholder:''});renderReviewQuestionEditor()};
+function addWeeklyQuestion(){reviewQuestionDraft.push({id:uid(),label:'新しい質問',placeholder:''});renderReviewQuestionEditor()}
+addReviewQuestion.onclick=addWeeklyQuestion;
 function saveWeeklyQuestions(){document.querySelectorAll('[data-edit-review-question]').forEach(x=>{if(reviewQuestionDraft[x.dataset.editReviewQuestion])reviewQuestionDraft[x.dataset.editReviewQuestion].label=x.value});document.querySelectorAll('[data-edit-review-placeholder]').forEach(x=>{if(reviewQuestionDraft[x.dataset.editReviewPlaceholder])reviewQuestionDraft[x.dataset.editReviewPlaceholder].placeholder=x.value});const valid=reviewQuestionDraft.filter(q=>q.label.trim());if(!valid.length)return toast('質問を1つ以上残してください');db.reviewQuestions=valid;db.reviewLabels=Object.fromEntries(valid.map(q=>[q.id,q.label]));db.reviewQuestionDefaultsVersion=3;db.reviewSameAsDailyV1=false;persist('週次の質問を保存しました');reviewEditor.classList.remove('open');reviewEditorList.innerHTML='';toggleReviewEditor.textContent='質問を編集';renderReview()}
-let lastReviewQuestionSaveTap=0;
-function handleWeeklyQuestionSaveTap(e){const now=Date.now();if(now-lastReviewQuestionSaveTap<450){e.preventDefault();e.stopPropagation();return}lastReviewQuestionSaveTap=now;e.preventDefault();e.stopPropagation();saveWeeklyQuestions()}
+let lastReviewQuestionSaveTap=0,lastReviewQuestionAddTap=0;
+function handleWeeklyQuestionAddTap(e){lastReviewQuestionAddTap=tapButton(e,'#addReviewQuestion',lastReviewQuestionAddTap,addWeeklyQuestion)}
+function handleWeeklyQuestionSaveTap(e){lastReviewQuestionSaveTap=tapButton(e,'#saveReviewLabels',lastReviewQuestionSaveTap,saveWeeklyQuestions)}
+['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleWeeklyQuestionAddTap,true));
+['pointerdown','touchend','click'].forEach(type=>document.addEventListener(type,handleWeeklyQuestionSaveTap,true));
 saveReviewLabels.addEventListener('pointerup',handleWeeklyQuestionSaveTap,true);
 saveReviewLabels.addEventListener('click',handleWeeklyQuestionSaveTap,true);
 function saveReviewText(p){document.querySelectorAll('[data-review-answer]').forEach(x=>p.review[x.dataset.reviewAnswer]=x.value)}
