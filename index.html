@@ -95,10 +95,13 @@ const fmt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('ja-JP',{year:'numeric
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function blankPeriod(){return{id:uid(),start:dateKey(),end:dateKey(new Date(Date.now()+6*864e5)),purpose:'',mission:'',goal3:'',goal1:'',theme:'',roles:[],priorities:[],tasks:[],metrics:[],review:{weekSummary:'',wentWell:'',challenges:'',learnings:'',keepDoing:'',nextChange:'',goalResult:'',roleResults:{},priorityResults:{},taskResults:{}},status:'active',createdAt:Date.now()}}
 const RESTORED_KEY=KEY+'_restored_current';
+const LAST_DISPLAY_KEY=KEY+'_last_displayed';
 function readStored(key){try{return JSON.parse(localStorage.getItem(key))}catch{return null}}
+function isStoredPlanner(d){return d&&typeof d==='object'&&Array.isArray(d.periods)&&d.periods.length}
 function storageStamp(d){return Math.max(0,+d?._savedAt||0,...(d?.periods||[]).map(p=>Math.max(+p.createdAt||0,+p.review?.savedAt||0,+p.review?.completedAt||0)),...Object.values(d?.journal||{}).map(r=>+r.savedAt||0))}
-function writeCurrentData(data){data._savedAt=Date.now();localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(RESTORED_KEY,JSON.stringify(data))}
-function load(){const main=readStored(KEY),restored=readStored(RESTORED_KEY);if(restored&&(!main||storageStamp(restored)>storageStamp(main)))return restored;return main}
+function writeCurrentData(data){data._savedAt=Date.now();const raw=JSON.stringify(data);localStorage.setItem(KEY,raw);localStorage.setItem(RESTORED_KEY,raw);localStorage.setItem(LAST_DISPLAY_KEY,raw)}
+function rememberDisplayedData(){try{if(isStoredPlanner(db))localStorage.setItem(LAST_DISPLAY_KEY,JSON.stringify(db))}catch(e){console.warn('last display save skipped',e)}}
+function load(){const last=readStored(LAST_DISPLAY_KEY),main=readStored(KEY),restored=readStored(RESTORED_KEY);if(isStoredPlanner(last))return last;if(restored&&(!main||storageStamp(restored)>storageStamp(main)))return restored;return main}
 function migrateLegacy(){
   const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
   try{
@@ -179,7 +182,7 @@ function updateTokyoClock(){const now=new Date(),current=dateKey(now);document.g
 updateTokyoClock();setInterval(updateTokyoClock,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateTokyoClock()});
 
 document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button[data-page]');if(!b)return;showPage(b.dataset.page)});
-function showPage(name){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='page-'+name));document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.page===name));({plan:renderPlan,calendar:renderCalendar,google:renderGoogle,daily:renderDaily,history:renderHistory,review:renderReview,periods:renderPeriods}[name]||(()=>{}))()}
+function showPage(name){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='page-'+name));document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.page===name));({plan:renderPlan,calendar:renderCalendar,google:renderGoogle,daily:renderDaily,history:renderHistory,review:renderReview,periods:renderPeriods}[name]||(()=>{}))();rememberDisplayedData()}
 let tapFocus=null;document.addEventListener('pointerdown',e=>{const el=e.target.closest('input,textarea');if(!el||el.disabled||el.readOnly||['checkbox','radio','button','file'].includes(el.type)){tapFocus=null;return}tapFocus={el,x:e.clientX,y:e.clientY,id:e.pointerId}},true);document.addEventListener('pointermove',e=>{if(tapFocus&&e.pointerId===tapFocus.id&&(Math.abs(e.clientX-tapFocus.x)>8||Math.abs(e.clientY-tapFocus.y)>8))tapFocus=null},true);document.addEventListener('pointerup',e=>{if(!tapFocus||e.pointerId!==tapFocus.id)return;const el=tapFocus.el;tapFocus=null;try{el.focus({preventScroll:true})}catch{el.focus()}},true);
 let inputScrollKeep=null;function keepInputScroll(e){if(!e.target.matches?.('input,textarea'))return;const type=e.inputType||'';if(!type.startsWith('delete')&&type!=='insertLineBreak'&&type!=='insertParagraph')return;const pane=e.target.closest('.event-modal');inputScrollKeep={win:scrollY,pane,top:pane?.scrollTop??0}}document.addEventListener('beforeinput',keepInputScroll,true);document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches?.('textarea'))keepInputScroll({target:e.target,inputType:'insertLineBreak'})},true);document.addEventListener('input',e=>{if(!inputScrollKeep||!e.target.matches?.('input,textarea'))return;const keep=inputScrollKeep;inputScrollKeep=null;requestAnimationFrame(()=>requestAnimationFrame(()=>{if(keep.pane)keep.pane.scrollTop=keep.top;else scrollTo(0,keep.win)}))},true);
 function renderPlan(){const p=active();periodStart.value=p.start;periodEnd.value=p.end;purpose.value=p.purpose;mission.value=p.mission;autoGrow(mission);goal3.value=p.goal3;goal1.value=p.goal1;activePeriodTitle.textContent=`${fmt(p.start)} 〜 ${fmt(p.end)}`;
@@ -289,8 +292,10 @@ function renderPeriods(){periodList.innerHTML=db.periods.map(p=>`<div class="per
 periodList.onclick=e=>{const id=e.target.dataset.openPeriod||e.target.dataset.deletePeriod;if(!id)return;if(e.target.dataset.openPeriod){db.activeId=id;persist();showPage('plan')}else{if(db.periods.length===1)return toast('最後の期間は削除できません');if(confirm('この期間と紐づく内省記録を削除しますか？')){db.periods=db.periods.filter(p=>p.id!==id);Object.keys(db.journal).forEach(d=>{if(db.journal[d].periodId===id)delete db.journal[d]});if(db.activeId===id)db.activeId=db.periods[0].id;persist('削除しました');renderPeriods()}}};
 exportData.onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(db,null,2)],{type:'application/json'}));a.download=`life-compass-${dateKey()}.json`;a.click();URL.revokeObjectURL(a.href)};
 importData.onchange=async e=>{try{const x=JSON.parse(await e.target.files[0].text());if(!x.periods||!x.journal)throw 0;db=x;persist('データを読み込みました');renderPeriods()}catch{toast('読み込めないファイルです')}};
-clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削除しますか？')){localStorage.removeItem(KEY);location.reload()}};
-const initialPage=new URLSearchParams(location.search).get('page');if(['plan','calendar','daily','review','history','periods','google'].includes(initialPage))showPage(initialPage);else renderPlan();
+clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削除しますか？')){localStorage.removeItem(KEY);localStorage.removeItem(RESTORED_KEY);localStorage.removeItem(LAST_DISPLAY_KEY);location.reload()}};
+window.addEventListener('pagehide',rememberDisplayedData);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')rememberDisplayedData()});
+const initialPage=new URLSearchParams(location.search).get('page');if(['plan','calendar','daily','review','history','periods','google'].includes(initialPage))showPage(initialPage);else{renderPlan();rememberDisplayedData()}
 </script>
 </body>
 </html>
