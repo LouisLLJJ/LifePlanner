@@ -96,11 +96,43 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function blankPeriod(){return{id:uid(),start:dateKey(),end:dateKey(new Date(Date.now()+6*864e5)),purpose:'',mission:'',goal3:'',goal1:'',theme:'',roles:[],priorities:[],tasks:[],metrics:[],review:{weekSummary:'',wentWell:'',challenges:'',learnings:'',keepDoing:'',nextChange:'',goalResult:'',roleResults:{},priorityResults:{},taskResults:{}},status:'active',createdAt:Date.now()}}
 const RESTORED_KEY=KEY+'_restored_current';
 const LAST_DISPLAY_KEY=KEY+'_last_displayed';
+let skipRememberDisplayed=false;
 function readStored(key){try{return JSON.parse(localStorage.getItem(key))}catch{return null}}
 function isStoredPlanner(d){return d&&typeof d==='object'&&Array.isArray(d.periods)&&d.periods.length}
 function storageStamp(d){return Math.max(0,+d?._savedAt||0,...(d?.periods||[]).map(p=>Math.max(+p.createdAt||0,+p.review?.savedAt||0,+p.review?.completedAt||0)),...Object.values(d?.journal||{}).map(r=>+r.savedAt||0))}
 function writeCurrentData(data){data._savedAt=Date.now();const raw=JSON.stringify(data);localStorage.setItem(KEY,raw);localStorage.setItem(RESTORED_KEY,raw);localStorage.setItem(LAST_DISPLAY_KEY,raw)}
-function rememberDisplayedData(){try{if(isStoredPlanner(db))localStorage.setItem(LAST_DISPLAY_KEY,JSON.stringify(db))}catch(e){console.warn('last display save skipped',e)}}
+function captureVisibleEdits(){
+  if(!isStoredPlanner(db))return;
+  const p=active();
+  if(document.getElementById('page-plan')?.classList.contains('on')){
+    p.start=periodStart.value;p.end=periodEnd.value;p.purpose=purpose.value;p.mission=mission.value;p.goal3=goal3.value;p.goal1=goal1.value;
+    document.querySelectorAll('#page-plan [data-role-name]').forEach(x=>{if(p.roles[x.dataset.roleName])p.roles[x.dataset.roleName].name=x.value});
+    document.querySelectorAll('#page-plan [data-role-goal]').forEach(x=>{if(p.roles[x.dataset.roleGoal])p.roles[x.dataset.roleGoal].goal=x.value});
+    document.querySelectorAll('#page-plan [data-task-text]').forEach(x=>{if(p.tasks[x.dataset.taskText])p.tasks[x.dataset.taskText].text=x.value});
+    document.querySelectorAll('#page-plan [data-task-date]').forEach(x=>{if(p.tasks[x.dataset.taskDate])p.tasks[x.dataset.taskDate].date=x.value});
+    document.querySelectorAll('#page-plan [data-task-start]').forEach(x=>{if(p.tasks[x.dataset.taskStart])p.tasks[x.dataset.taskStart].startTime=x.value});
+    document.querySelectorAll('#page-plan [data-task-end]').forEach(x=>{if(p.tasks[x.dataset.taskEnd])p.tasks[x.dataset.taskEnd].endTime=x.value});
+  }
+  if(document.getElementById('page-daily')?.classList.contains('on')){
+    const d=dateKey(),old=db.journal[d]||{},answers={...(old.answers||{})};
+    document.querySelectorAll('#page-daily [data-answer]').forEach(x=>answers[x.dataset.answer]=x.value);
+    db.journal[d]={...old,answers,periodId:(periodForDate(d)||p).id,savedAt:Date.now()};
+  }
+  if(document.getElementById('page-review')?.classList.contains('on')){
+    document.querySelectorAll('#page-review [data-review-answer]').forEach(x=>p.review[x.dataset.reviewAnswer]=x.value);
+    document.querySelectorAll('#page-review [data-metric-name]').forEach(x=>{if(p.metrics[x.dataset.metricName])p.metrics[x.dataset.metricName].name=x.value});
+    document.querySelectorAll('#page-review [data-metric-unit]').forEach(x=>{if(p.metrics[x.dataset.metricUnit])p.metrics[x.dataset.metricUnit].unit=x.value});
+    document.querySelectorAll('#page-review [data-metric-target]').forEach(x=>{if(p.metrics[x.dataset.metricTarget])p.metrics[x.dataset.metricTarget].target=+x.value||0});
+    document.querySelectorAll('#page-review [data-metric-actual]').forEach(x=>{if(p.metrics[x.dataset.metricActual])p.metrics[x.dataset.metricActual].actual=+x.value||0});
+  }
+  if(document.getElementById('page-history')?.classList.contains('on')){
+    document.querySelectorAll('[data-history-date]').forEach(card=>{const rec=db.journal[card.dataset.historyDate];if(rec)card.querySelectorAll('[data-history-answer]').forEach(x=>rec.answers[x.dataset.historyAnswer]=x.value)});
+  }
+  if(typeof editingTaskIndex==='number'&&editingTaskIndex!==null&&eventModal?.classList.contains('open')){
+    const t=p.tasks[editingTaskIndex];if(t){t.text=eventText.value;t.q=eventQuadrant.value;t.roleId=eventRole.value;t.date=eventDate.value;t.done=eventDone.checked;if(eventNoTime.checked){t.startTime='';t.endTime=''}else{t.startTime=eventStart.value;t.endTime=minutesTime(timeMinutes(eventStart.value||'09:00')+(+eventDuration.value||60))}}
+  }
+}
+function rememberDisplayedData(){if(skipRememberDisplayed)return;try{captureVisibleEdits();if(isStoredPlanner(db)){db._savedAt=Date.now();localStorage.setItem(LAST_DISPLAY_KEY,JSON.stringify(db));localStorage.setItem(KEY,JSON.stringify(db))}}catch(e){console.warn('last display save skipped',e)}}
 function load(){const last=readStored(LAST_DISPLAY_KEY),main=readStored(KEY),restored=readStored(RESTORED_KEY);if(isStoredPlanner(last))return last;if(restored&&(!main||storageStamp(restored)>storageStamp(main)))return restored;return main}
 function migrateLegacy(){
   const fresh={periods:[],activeId:null,journal:{},questions:DEFAULT_Q.map(q=>({...q})),reviewLabels:Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]))};
@@ -182,7 +214,7 @@ function updateTokyoClock(){const now=new Date(),current=dateKey(now);document.g
 updateTokyoClock();setInterval(updateTokyoClock,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateTokyoClock()});
 
 document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button[data-page]');if(!b)return;showPage(b.dataset.page)});
-function showPage(name){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='page-'+name));document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.page===name));({plan:renderPlan,calendar:renderCalendar,google:renderGoogle,daily:renderDaily,history:renderHistory,review:renderReview,periods:renderPeriods}[name]||(()=>{}))();rememberDisplayedData()}
+function showPage(name){rememberDisplayedData();document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='page-'+name));document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.page===name));({plan:renderPlan,calendar:renderCalendar,google:renderGoogle,daily:renderDaily,history:renderHistory,review:renderReview,periods:renderPeriods}[name]||(()=>{}))();rememberDisplayedData()}
 let tapFocus=null;document.addEventListener('pointerdown',e=>{const el=e.target.closest('input,textarea');if(!el||el.disabled||el.readOnly||['checkbox','radio','button','file'].includes(el.type)){tapFocus=null;return}tapFocus={el,x:e.clientX,y:e.clientY,id:e.pointerId}},true);document.addEventListener('pointermove',e=>{if(tapFocus&&e.pointerId===tapFocus.id&&(Math.abs(e.clientX-tapFocus.x)>8||Math.abs(e.clientY-tapFocus.y)>8))tapFocus=null},true);document.addEventListener('pointerup',e=>{if(!tapFocus||e.pointerId!==tapFocus.id)return;const el=tapFocus.el;tapFocus=null;try{el.focus({preventScroll:true})}catch{el.focus()}},true);
 let inputScrollKeep=null;function keepInputScroll(e){if(!e.target.matches?.('input,textarea'))return;const type=e.inputType||'';if(!type.startsWith('delete')&&type!=='insertLineBreak'&&type!=='insertParagraph')return;const pane=e.target.closest('.event-modal');inputScrollKeep={win:scrollY,pane,top:pane?.scrollTop??0}}document.addEventListener('beforeinput',keepInputScroll,true);document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches?.('textarea'))keepInputScroll({target:e.target,inputType:'insertLineBreak'})},true);document.addEventListener('input',e=>{if(!inputScrollKeep||!e.target.matches?.('input,textarea'))return;const keep=inputScrollKeep;inputScrollKeep=null;requestAnimationFrame(()=>requestAnimationFrame(()=>{if(keep.pane)keep.pane.scrollTop=keep.top;else scrollTo(0,keep.win)}))},true);
 function renderPlan(){const p=active();periodStart.value=p.start;periodEnd.value=p.end;purpose.value=p.purpose;mission.value=p.mission;autoGrow(mission);goal3.value=p.goal3;goal1.value=p.goal1;activePeriodTitle.textContent=`${fmt(p.start)} 〜 ${fmt(p.end)}`;
@@ -292,7 +324,7 @@ function renderPeriods(){periodList.innerHTML=db.periods.map(p=>`<div class="per
 periodList.onclick=e=>{const id=e.target.dataset.openPeriod||e.target.dataset.deletePeriod;if(!id)return;if(e.target.dataset.openPeriod){db.activeId=id;persist();showPage('plan')}else{if(db.periods.length===1)return toast('最後の期間は削除できません');if(confirm('この期間と紐づく内省記録を削除しますか？')){db.periods=db.periods.filter(p=>p.id!==id);Object.keys(db.journal).forEach(d=>{if(db.journal[d].periodId===id)delete db.journal[d]});if(db.activeId===id)db.activeId=db.periods[0].id;persist('削除しました');renderPeriods()}}};
 exportData.onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(db,null,2)],{type:'application/json'}));a.download=`life-compass-${dateKey()}.json`;a.click();URL.revokeObjectURL(a.href)};
 importData.onchange=async e=>{try{const x=JSON.parse(await e.target.files[0].text());if(!x.periods||!x.journal)throw 0;db=x;persist('データを読み込みました');renderPeriods()}catch{toast('読み込めないファイルです')}};
-clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削除しますか？')){localStorage.removeItem(KEY);localStorage.removeItem(RESTORED_KEY);localStorage.removeItem(LAST_DISPLAY_KEY);location.reload()}};
+clearData.onclick=()=>{if(confirm('すべての期間・プラン・内省を削除しますか？')){skipRememberDisplayed=true;localStorage.removeItem(KEY);localStorage.removeItem(RESTORED_KEY);localStorage.removeItem(LAST_DISPLAY_KEY);location.reload()}};
 window.addEventListener('pagehide',rememberDisplayedData);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')rememberDisplayedData()});
 const initialPage=new URLSearchParams(location.search).get('page');if(['plan','calendar','daily','review','history','periods','google'].includes(initialPage))showPage(initialPage);else{renderPlan();rememberDisplayedData()}
