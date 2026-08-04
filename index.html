@@ -134,8 +134,8 @@ function migrateLegacy(){
 }
 let db=load()||migrateLegacy();
 if(!db.periods.length){const p=blankPeriod();db.periods=[p];db.activeId=p.id}
-db.questions=db.questions||DEFAULT_Q.map(q=>({...q}));db.reviewLabels=db.reviewLabels||Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]));db.reviewQuestions=(db.reviewQuestions||REVIEW_FIELDS).map(q=>({id:q.id||uid(),label:q.label||db.reviewLabels[q.id]||'質問',placeholder:q.placeholder||''}));db.reviewQuestions.forEach(q=>{if(db.reviewLabels[q.id])q.label=db.reviewLabels[q.id];db.reviewLabels[q.id]=q.label});db.journal=db.journal||{};db.gcal=db.gcal||{apiKey:'',clientId:'',connected:false,events:[]};
-const oldQuestionList=db.questions.map((q,i)=>typeof q==='string'?{id:'legacy_'+i,label:q,placeholder:''}:{id:q.id||uid(),label:q.label||'質問',placeholder:q.placeholder||''});
+db.questions=db.questions||DEFAULT_Q.map(q=>({...q}));db.reviewLabels=db.reviewLabels||Object.fromEntries(REVIEW_FIELDS.map(x=>[x.id,x.label]));db.reviewQuestions=(db.reviewQuestions||REVIEW_FIELDS).map(q=>typeof q==='string'?{id:uid(),label:q,placeholder:''}:{...q,id:q.id||uid(),label:q.label||db.reviewLabels[q.id]||'質問',placeholder:q.placeholder||''});db.reviewQuestions.forEach(q=>{if(db.reviewLabels[q.id])q.label=db.reviewLabels[q.id];db.reviewLabels[q.id]=q.label});db.journal=db.journal||{};db.gcal=db.gcal||{apiKey:'',clientId:'',connected:false,events:[]};
+const oldQuestionList=db.questions.map((q,i)=>typeof q==='string'?{id:'legacy_'+i,label:q,placeholder:''}:{...q,id:q.id||uid(),label:q.label||'質問',placeholder:q.placeholder||''});
 const oldQuestionIds=oldQuestionList.map(q=>q.id);db.questions=oldQuestionList;db.questionLabels=db.questionLabels||{};db.questions.forEach(q=>db.questionLabels[q.id]=q.label);
 Object.values(db.journal).forEach(r=>{const a=r.answers||{},next={};Object.entries(a).forEach(([k,v])=>{const id=/^\d+$/.test(k)?oldQuestionIds[+k]:k;if(id)next[id]=v});r.answers=next});
 const legacySixLabels=['今日、感謝していることは？','今日は何を求めていた？','大切なことに時間を使えた？','うまくいったことは？','うまくいかなかったことは？','そこから何を学んだ？'];
